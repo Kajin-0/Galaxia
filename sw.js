@@ -1,81 +1,83 @@
-const CACHE_NAME = 'galaxia-cache-v1';
-// This list includes the essential files for the app shell to work offline.
-// The fetch handler will cache other assets like fonts on-demand.
+// Galaxia Service Worker - production-safe for GitHub Pages & local dev.
+// Caches an app shell and uses cache-first with network fallback for GETs.
+
+const VERSION = 'v3';
+const CACHE_NAME = `galaxia-cache-${VERSION}`;
+
+// Compute the base path dynamically from the scope so this works on
+// both localhost ("/") and GitHub Pages ("/Galaxia/").
+const BASE = (() => {
+  try {
+    return new URL(self.registration.scope).pathname || '/';
+  } catch {
+    return '/';
+  }
+})();
+
+// Keep the app shell small and stable. Hashed Vite assets are fetched
+// and cached at runtime; do not hard-code them here.
 const urlsToCache = [
-  '/',
-  '/index.html',
-  '/index.tsx',
-  '/manifest.json',
+  BASE,                    // e.g., "/Galaxia/" or "/"
+  BASE + 'index.html',
+  BASE + 'manifest.json',
   'https://cdn.tailwindcss.com',
-  'https://fonts.googleapis.com/css2?family=Exo+2:ital,wght@0,100..900;1,100..900&display=swap',
-  'https://esm.sh/react@^19.1.1',
-  'https://esm.sh/react-dom@^19.1.1/'
+  'https://fonts.googleapis.com/css2?family=Exo+2:wght@200..900&display=swap',
 ];
 
 self.addEventListener('install', event => {
-  // Perform install steps
   event.waitUntil(
-    caches.open(CACHE_NAME)
-      .then(cache => {
-        console.log('Opened cache');
-        // Use addAll to fetch and cache all the URLs.
-        // If any of the fetches fail, the whole service worker installation fails.
-        return cache.addAll(urlsToCache);
-      })
+    caches.open(CACHE_NAME).then(cache => cache.addAll(urlsToCache))
   );
+  self.skipWaiting();
+});
+
+self.addEventListener('activate', event => {
+  const keep = [CACHE_NAME];
+  event.waitUntil(
+    caches.keys().then(names => Promise.all(
+      names.map(n => (keep.includes(n) ? undefined : caches.delete(n)))
+    ))
+  );
+  self.clients.claim();
 });
 
 self.addEventListener('fetch', event => {
-  // This is a "Cache first, then network" strategy.
-  // It's ideal for performance and offline capability.
+  const req = event.request;
+
+  // Only handle GET requests.
+  if (req.method !== 'GET') return;
+
+  // Don’t try to cache non-HTTP(S) schemes.
+  const url = new URL(req.url);
+  if (url.protocol !== 'http:' && url.protocol !== 'https:') return;
+
   event.respondWith(
-    caches.match(event.request)
-      .then(response => {
-        // Cache hit - return response
-        if (response) {
-          return response;
+    caches.match(req).then(hit => {
+      if (hit) return hit;
+
+      // Fetch from network, then cache a clone for future.
+      return fetch(req).then(res => {
+        // Only cache successful, basic/opaque allowed responses.
+        if (
+          res &&
+          (res.status === 200 || res.type === 'opaque' || res.type === 'basic')
+        ) {
+          const resClone = res.clone();
+          caches.open(CACHE_NAME).then(cache => {
+            // Avoid caching POST/PUT/etc (already filtered), and avoid caching
+            // requests that might be short-lived auth tokens (none here).
+            cache.put(req, resClone).catch(() => {});
+          });
         }
-
-        // Not in cache - fetch from network, and cache it for next time.
-        const fetchRequest = event.request.clone();
-
-        return fetch(fetchRequest).then(
-          response => {
-            // Check if we received a valid response
-            if(!response || response.status !== 200) {
-              return response;
-            }
-
-            const responseToCache = response.clone();
-
-            caches.open(CACHE_NAME)
-              .then(cache => {
-                // We only cache GET requests.
-                if (event.request.method === 'GET') {
-                    cache.put(event.request, responseToCache);
-                }
-              });
-
-            return response;
-          }
-        );
-      })
-    );
-});
-
-// This event is fired when the service worker is activated.
-// It's a good place to clean up old caches.
-self.addEventListener('activate', event => {
-  const cacheWhitelist = [CACHE_NAME];
-  event.waitUntil(
-    caches.keys().then(cacheNames => {
-      return Promise.all(
-        cacheNames.map(cacheName => {
-          if (cacheWhitelist.indexOf(cacheName) === -1) {
-            return caches.delete(cacheName);
-          }
-        })
-      );
+        return res;
+      }).catch(() => {
+        // Optional: basic offline fallback for HTML navigations.
+        if (req.mode === 'navigate') {
+          return caches.match(BASE + 'index.html');
+        }
+        // Otherwise, just let it fail.
+        return new Response('Offline', { status: 503, statusText: 'Offline' });
+      });
     })
   );
 });
