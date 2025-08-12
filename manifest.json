@@ -1,0 +1,24 @@
+{
+  "name": "Galaxia",
+  "short_name": "Galaxia",
+  "description": "A visually striking, retro-futuristic lane shooter game. Move your ship, dodge enemies, and shoot for the high score in a neon-drenched world.",
+  "start_url": "/",
+  "display": "fullscreen",
+  "orientation": "portrait",
+  "background_color": "#020617",
+  "theme_color": "#06b6d4",
+  "icons": [
+    {
+      "src": "data:image/svg+xml,%3csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3e%3crect width='24' height='24' fill='%23020617'/%3e%3cpath fill='%2306b6d4' d='M12,2A10,10 0 0,0 2,12A10,10 0 0,0 12,22A10,10 0 0,0 22,12A10,10 0 0,0 12,2M12,4A8,8 0 0,1 20,12A8,8 0 0,1 12,20A8,8 0 0,1 4,12A8,8 0 0,1 12,4M12,6A6,6 0 0,0 6,12H8A4,4 0 0,1 12,8A4,4 0 0,1 16,12V14H10V16H16A2,2 0 0,0 18,14V12A6,6 0 0,0 12,6Z' /%3e%3c/svg%3e",
+      "sizes": "192x192",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "data:image/svg+xml,%3csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3e%3crect width='24' height='24' fill='%23020617'/%3e%3cpath fill='%2306b6d4' d='M12,2A10,10 0 0,0 2,12A10,10 0 0,0 12,22A10,10 0 0,0 22,12A10,10 0 0,0 12,2M12,4A8,8 0 0,1 20,12A8,8 0 0,1 12,20A8,8 0 0,1 4,12A8,8 0 0,1 12,4M12,6A6,6 0 0,0 6,12H8A4,4 0 0,1 12,8A4,4 0 0,1 16,12V14H10V16H16A2,2 0 0,0 18,14V12A6,6 0 0,0 12,6Z' /%3e%3c/svg%3e",
+      "sizes": "512x512",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}
