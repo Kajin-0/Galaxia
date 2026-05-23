@@ -1,0 +1,103 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <defs>
+    <!-- Glow effects matching the game's cyan theme -->
+    <filter id="glow" x="-50%" y="-50%" width="200%" height="200%">
+      <feGaussianBlur stdDeviation="8" result="coloredBlur"/>
+      <feMerge>
+        <feMergeNode in="coloredBlur"/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+  
+    <filter id="strongGlow" x="-100%" y="-100%" width="300%" height="300%">
+      <feGaussianBlur stdDeviation="25" result="coloredBlur"/>
+      <feMerge>
+        <feMergeNode in="coloredBlur"/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+    <!-- Drone body gradient with artistic enhancement -->
+    <linearGradient id="droneGrad" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#52525b"/>
+      <stop offset="50%" stop-color="#3f3f46"/>
+      <stop offset="100%" stop-color="#2d2d34"/>
+    </linearGradient>
+    <!-- Core gradient with artistic flair -->
+    <linearGradient id="coreGrad" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#67e8f9"/>
+      <stop offset="50%" stop-color="#22d3ee"/>
+      <stop offset="100%" stop-color="#0891b2"/>
+    </linearGradient>
+    <!-- Artistic pattern for hull texture -->
+    <pattern id="hullPattern" patternUnits="userSpaceOnUse" width="10" height="10">
+      <path d="M0 0L10 10M10 0L0 10" stroke="#475569" stroke-width="0.5" opacity="0.3"/>
+    </pattern>
+    <!-- Enhanced glow filter for artistic effect -->
+    <filter id="artisticGlow" x="-100%" y="-100%" width="300%" height="300%">
+      <feGaussianBlur stdDeviation="15" result="blur1"/>
+      <feGaussianBlur stdDeviation="30" result="blur2"/>
+      <feMerge>
+        <feMergeNode in="blur1"/>
+        <feMergeNode in="blur2"/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+  </defs>
+  <!-- Black background -->
+  <rect width="512" height="512" fill="#000000"/>
+  <!-- Left side hexagon (gun drone) with artistic enhancements -->
+  <g transform="translate(180, 256)">
+    <!-- Strong outer glow -->
+    <polygon points="0,-48 24,-24 24,24 0,48 -24,24 -24,-24"
+             fill="#00e6ff" opacity="0.4" filter="url(#artisticGlow)"/>
+    <!-- Main hexagon body with gradient and texture -->
+    <polygon points="0,-48 24,-24 24,24 0,48 -24,24 -24,-24"
+             fill="url(#droneGrad)"/>
+    <polygon points="0,-48 24,-24 24,24 0,48 -24,24 -24,-24"
+             fill="url(#hullPattern)" opacity="0.2"/>
+    <!-- Inner pill-shaped glow with artistic pulse effect -->
+    <g fill="#22d3ee" filter="url(#glow)">
+      <rect x="-6" y="-19.2" width="12" height="38.4" rx="6"/>
+    </g>
+    <!-- Removed additional artistic highlight (the zig-zag line) -->
+  </g>
+  <!-- Right side hexagon (gun drone) with artistic enhancements -->
+  <g transform="translate(332, 256)">
+    <!-- Strong outer glow -->
+    <polygon points="0,-48 24,-24 24,24 0,48 -24,24 -24,-24"
+             fill="#00e6ff" opacity="0.4" filter="url(#artisticGlow)"/>
+    <!-- Main hexagon body with gradient and texture -->
+    <polygon points="0,-48 24,-24 24,24 0,48 -24,24 -24,-24"
+             fill="url(#droneGrad)"/>
+    <polygon points="0,-48 24,-24 24,24 0,48 -24,24 -24,-24"
+             fill="url(#hullPattern)" opacity="0.2"/>
+    <!-- Inner pill-shaped glow -->
+    <g fill="#22d3ee" filter="url(#glow)">
+      <rect x="-6" y="-19.2" width="12" height="38.4" rx="6"/>
+    </g>
+    <!-- Removed additional artistic highlight (the zig-zag line) -->
+  </g>
+  <!-- Central ship (alpha hero path from code) with artistic enhancements -->
+  <g transform="translate(256, 256)">
+    <!-- Strong outer glow for entire ship -->
+    <g fill="#00e6ff" opacity="0.3" filter="url(#artisticGlow)">
+      <!-- Main hull -->
+      <polygon points="0,-80 40,40 24,80 -24,80 -40,40"/>
+    </g>
+    <!-- Main ship hull with texture -->
+    <polygon points="0,-80 40,40 24,80 -24,80 -40,40"
+             fill="#334155"/>
+    <polygon points="0,-80 40,40 24,80 -24,80 -40,40"
+             fill="url(#hullPattern)" opacity="0.3"/>
+    <!-- Alpha ship detail band with gradient -->
+    <polygon points="-32,-16 32,-16 28.8,16 -28.8,16"
+             fill="#64748b"/>
+    <!-- Central cockpit triangle with artistic shadow -->
+    <polygon points="0,-56 10,-8 -10,-8" fill="#475569"/>
+    <polygon points="0,-56 10,-8 -10,-8" fill="rgba(0,0,0,0.2)" filter="url(#glow)"/>
+    <!-- Glowing engine/core with gradient and additional flare -->
+    <polygon points="0,-48 6,-16 -6,-16"
+             fill="url(#coreGrad)" filter="url(#glow)"/>
+    <!-- Removed artistic flare lines (the "v" shape) -->
+  </g>
+</svg>

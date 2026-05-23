@@ -1,0 +1,481 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+    <link rel="icon" href="/favicon.svg" type="image/svg+xml" sizes="any" />
+    
+    <!-- Apple Touch Icons for iOS -->
+    <link rel="apple-touch-icon" href="/apple-touch-icon.png" sizes="180x180" />
+    <link rel="apple-touch-icon" href="/icon-192.png" sizes="192x192" />
+    <link rel="apple-touch-icon" href="/icon-512.png" sizes="512x512" />
+    
+    <!-- Standard Icons for Android/Chrome -->
+    <link rel="icon" href="/icon-192.png" sizes="192x192" type="image/png" />
+    <link rel="icon" href="/icon-512.png" sizes="512x512" type="image/png" />
+    
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
+    <title>Galaxia</title>
+    
+    <!-- For Progressive Web App (PWA) on Apple devices -->
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="apple-mobile-web-app-title" content="Galaxia">
+    
+    <!-- Theme colors -->
+    <meta name="theme-color" content="#020617">
+    <meta name="msapplication-TileColor" content="#020617">
+    
+    <!-- Mobile fullscreen meta tags -->
+    <meta name="mobile-web-app-capable" content="yes">
+    <meta name="format-detection" content="telephone=no">
+    
+    <!-- Microsoft specific -->
+    <meta name="msapplication-tap-highlight" content="no">
+    <meta name="msapplication-config" content="none">
+    
+    <!-- Chrome/Android specific -->
+    <meta name="theme-color" content="#020617" media="(prefers-color-scheme: dark)">
+    <meta name="theme-color" content="#020617" media="(prefers-color-scheme: light)">
+    
+    <!-- PWA Manifest -->
+    <link rel="manifest" href="/manifest.json">
+    
+    <!-- Safari pinned tab icon -->
+    <link rel="mask-icon" href="/favicon.svg" color="#020617">
+    
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+      document.addEventListener('DOMContentLoaded', function() {
+        // Prevent context menu on long press, which can interfere with gameplay
+        window.oncontextmenu = function(event) {
+          event.preventDefault();
+          event.stopPropagation();
+          return false;
+        };
+
+        // More specific gesture prevention to avoid interfering with game controls
+        document.body.addEventListener('touchstart', function(e) {
+          if (e.touches.length > 1) {
+            // This prevents zooming and other multi-touch browser gestures
+            e.preventDefault();
+          }
+        }, { passive: false });
+
+        // Prevent pull-to-refresh and other overscroll behaviors
+        document.body.style.overscrollBehavior = 'none';
+
+        // Enhanced fullscreen functionality
+        window.enterFullscreen = function() {
+          const elem = document.documentElement;
+          
+          // Try different fullscreen methods in order of preference
+          if (elem.requestFullscreen) {
+            return elem.requestFullscreen({ navigationUI: 'hide' });
+          } else if (elem.webkitRequestFullscreen) {
+            return elem.webkitRequestFullscreen();
+          } else if (elem.mozRequestFullScreen) {
+            return elem.mozRequestFullScreen();
+          } else if (elem.msRequestFullscreen) {
+            return elem.msRequestFullscreen();
+          }
+          
+          return Promise.reject(new Error('Fullscreen not supported'));
+        };
+
+        // Force address bar hide on mobile browsers
+        window.hideAddressBar = function() {
+          // Scroll to hide address bar
+          window.scrollTo(0, 1);
+          
+          // Set viewport height to window height
+          const vh = window.innerHeight * 0.01;
+          document.documentElement.style.setProperty('--vh', vh + 'px');
+          
+          // Use setTimeout to handle delayed address bar hiding
+          setTimeout(() => {
+            window.scrollTo(0, 0);
+            const newVh = window.innerHeight * 0.01;
+            document.documentElement.style.setProperty('--vh', newVh + 'px');
+          }, 100);
+        };
+
+        // Handle orientation and resize events
+        window.addEventListener('orientationchange', () => {
+          setTimeout(window.hideAddressBar, 300);
+        });
+
+        window.addEventListener('resize', () => {
+          const vh = window.innerHeight * 0.01;
+          document.documentElement.style.setProperty('--vh', vh + 'px');
+        });
+
+        // Initial address bar hide
+        window.hideAddressBar();
+      });
+    </script>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Exo+2:ital,wght@0,100..900;1,100..900&display=swap" rel="stylesheet">
+    <style>
+      :root {
+        --vh: 1vh; /* Will be set by JavaScript */
+      }
+      html, body {
+        width: 100%;
+        margin: 0;
+        padding: 0;
+        overflow: hidden; /* Master rule to prevent all scrolling */
+      }
+      html {
+        /* Use JS-calculated height for mobile address bar compatibility */
+        height: 100vh; /* Fallback for desktop/non-JS */
+        height: 100dvh; /* Better fallback for modern mobile browsers */
+        height: calc(var(--vh, 1vh) * 100);
+      }
+      body {
+        height: 100%; /* Inherit calculated height from html element */
+        /* Keep essential interaction and appearance properties */
+        touch-action: pan-y; /* Allow vertical scrolling for menus, but hint against horizontal gestures */
+        overscroll-behavior: none;
+        -webkit-user-select: none;
+        user-select: none;
+        -webkit-touch-callout: none;
+        font-family: 'Exo 2', sans-serif;
+        background-color: #020617; /* slate-950 */
+      }
+      #root {
+        width: 100%;
+        height: 100%;
+        touch-action: pan-y;
+        -webkit-user-select: none;
+        user-select: none;
+        -webkit-touch-callout: none;
+        -webkit-tap-highlight-color: transparent;
+      }
+
+      /* Prevent any element from being selectable or showing callouts */
+      * {
+        -webkit-user-select: none;
+        user-select: none;
+        -webkit-touch-callout: none;
+        -webkit-tap-highlight-color: transparent;
+      }
+
+      #splash-screen {
+        position: fixed;
+        inset: 0;
+        z-index: 9999;
+        background-color: #020617; /* Fallback color for when image is loading */
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        transition: opacity 0.5s ease-out;
+        opacity: 1;
+        overflow: hidden;
+      }
+
+      #splash-screen picture,
+      #splash-screen picture img {
+        position: absolute;
+        inset: 0;
+        width: 100%;
+        height: 100%;
+        object-fit: cover;
+        object-position: center;
+      }
+
+      #splash-screen.hidden {
+        opacity: 0;
+        pointer-events: none;
+      }
+
+      /* Pink explosion effect for normal enemy kills */
+      @keyframes splatter {
+        0% {
+          transform: translate(0, 0) scale(1.2);
+          opacity: 1;
+        }
+        100% {
+          transform: translate(calc(cos(var(--angle)) * var(--distance)), calc(sin(var(--angle)) * var(--distance))) scale(0);
+          opacity: 0;
+        }
+      }
+      .animate-splatter-particle {
+        animation: splatter 0.5s ease-out forwards;
+      }
+
+      /* Shifting Nebula Background - Performance Refactor */
+      .nebula-container {
+        position: absolute;
+        inset: 0;
+        overflow: hidden; /* Contain pseudo-elements */
+      }
+
+      .nebula-container::before,
+      .nebula-container::after {
+        content: '';
+        position: absolute;
+        width: 200%; /* Large enough to pan without showing edges */
+        height: 200%;
+        top: -50%;
+        left: -50%;
+        background-repeat: no-repeat;
+        will-change: transform, opacity;
+      }
+
+      .nebula-container::before {
+        background-image: radial-gradient(ellipse at 40% 40%, hsla(180, 90%, 70%, 0.35) 0%, transparent 50%);
+        animation: nebula-pan-1 90s linear infinite;
+      }
+
+      .nebula-container::after {
+        background-image: radial-gradient(ellipse at 60% 60%, hsla(280, 85%, 70%, 0.3) 0%, transparent 55%);
+        animation: nebula-pan-2 120s linear infinite;
+      }
+
+      @keyframes nebula-pan-1 {
+        0% { transform: translate(0, 0); opacity: 0.9; }
+        50% { transform: translate(25%, 10%); opacity: 0.7; }
+        100% { transform: translate(0, 0); opacity: 0.9; }
+      }
+
+      @keyframes nebula-pan-2 {
+        0% { transform: translate(0, 0); opacity: 0.7; }
+        50% { transform: translate(-15%, -20%); opacity: 0.9; }
+        100% { transform: translate(0, 0); opacity: 0.7; }
+      }
+      
+      /* Twinkling Starfield - Performance Refactor */
+      .starfield {
+        position: absolute;
+        inset: 0;
+        overflow: hidden; /* Contain the pseudo-element */
+      }
+
+      .starfield::before {
+        content: '';
+        position: absolute;
+        width: 200%; /* Make it large enough to pan across the whole screen */
+        height: 200%;
+        top: -50%;
+        left: -50%;
+        background-image:
+          radial-gradient(1px 1px at 50px 100px, white, transparent),
+          radial-gradient(1px 1px at 150px 240px, white, transparent),
+          radial-gradient(2px 2px at 250px 80px, #ddd, transparent);
+        background-size: 300px 300px;
+        background-repeat: repeat;
+        animation: twinkle-pan 60s linear infinite;
+        opacity: 0.7;
+        will-change: transform;
+      }
+
+      @keyframes twinkle-pan {
+        from { transform: translate(0, 0); }
+        to { transform: translate(300px, -300px); }
+      }
+
+      /* Directional lighting from a nearby sun */
+      .directional-light {
+        position: absolute;
+        inset: 0;
+        background: radial-gradient(ellipse at 100% 0%, hsla(45, 100%, 90%, 0.25) 0%, transparent 50%);
+        mix-blend-mode: soft-light;
+        pointer-events: none;
+      }
+
+      /* NEW -- Continuous Reload Button Animation */
+      @keyframes reloading-spin {
+        from {
+          transform: rotate(0deg);
+        }
+        to {
+          transform: rotate(var(--reload-degrees, 1440deg)); /* Default to 4 full spins */
+        }
+      }
+      .animate-reloading-spin {
+        animation: reloading-spin var(--reload-duration, 1.5s) linear forwards;
+      }
+
+      /* Critical hit electrical explosion animation */
+      @keyframes crit-hit-expand {
+        from {
+          transform: translate(-50%, -50%) scale(0);
+          opacity: 1;
+        }
+        to {
+          transform: translate(-50%, -50%) scale(1);
+          opacity: 0;
+        }
+      }
+      .animate-crit-hit {
+        animation: crit-hit-expand 250ms ease-out forwards;
+      }
+      
+      @keyframes crit-flash {
+        from { opacity: 1; transform: translate(-50%,-50%) scale(1.5); }
+        to { opacity: 0; transform: translate(-50%,-50%) scale(0); }
+      }
+
+      /* Global light flash from explosions */
+      @keyframes light-flash-effect {
+        from {
+          transform: translate(-50%, -50%) scale(0.2);
+          opacity: var(--start-opacity, 0.7);
+        }
+        to {
+          transform: translate(-50%, -50%) scale(2.0);
+          opacity: 0;
+        }
+      }
+      .animate-light-flash {
+        animation: light-flash-effect 450ms ease-out forwards;
+      }
+
+      /* Level up text animation */
+      @keyframes level-up-pop {
+        0% {
+          transform: translate(-50%, -50%) scale(0.5);
+          opacity: 0;
+        }
+        25% {
+          transform: translate(-50%, -50%) scale(1.1);
+          opacity: 1;
+        }
+        50% {
+          transform: translate(-50%, -50%) scale(1);
+          opacity: 1;
+        }
+        100% {
+          transform: translate(-50%, -50%) scale(1);
+          opacity: 0;
+        }
+      }
+      .animate-level-up {
+        animation: level-up-pop 2000ms ease-out forwards;
+      }
+
+      /* Shield form animation */
+      @keyframes shield-form {
+        from {
+            transform: scale(0.5) translateZ(-10px);
+            opacity: 0;
+        }
+        to {
+            transform: scale(1) translateZ(-10px);
+            opacity: 1;
+        }
+      }
+      .animate-shield-form {
+        animation: shield-form 400ms cubic-bezier(0.22, 1, 0.36, 1) forwards;
+      }
+
+      /* Shield shatter animation */
+      @keyframes shield-shatter-fragment {
+          0% {
+              transform: rotate(var(--r-start, 0deg)) scale(1);
+              opacity: 0.9;
+          }
+          100% {
+              transform: translate(var(--tx, 0), var(--ty, 0)) rotate(var(--r-end, 0deg)) scale(0);
+              opacity: 0;
+          }
+      }
+      .animate-shield-shatter-fragment {
+          animation: shield-shatter-fragment 500ms ease-out forwards;
+      }
+
+      /* Pause animations when game is paused for battery saving */
+      .game-paused .nebula-container::before,
+      .game-paused .nebula-container::after,
+      .game-paused .starfield::before {
+        animation-play-state: paused;
+      }
+
+      /* In-game text overlay animation */
+      @keyframes fade-in-out {
+          0% {
+              opacity: 0;
+              transform: translateY(20px);
+          }
+          15% {
+              opacity: 1;
+              transform: translateY(0);
+          }
+          85% {
+              opacity: 1;
+              transform: translateY(0);
+          }
+          100% {
+              opacity: 0;
+              transform: translateY(-20px);
+          }
+      }
+      .animate-fade-in-out {
+          animation: fade-in-out var(--animation-duration, 4000ms) ease-in-out forwards;
+      }
+
+      /* Generic fade-out animation */
+      @keyframes fade-out {
+        from { opacity: var(--start-opacity, 1); }
+        to { opacity: 0; }
+      }
+
+      /* Power-up Infusion Effect */
+      @keyframes power-up-infuse {
+        from {
+          transform: translateY(-100%) scaleY(1.5);
+          opacity: 0.9;
+        }
+        to {
+          transform: translateY(100%) scaleY(1.5);
+          opacity: 0;
+        }
+      }
+      .animate-power-up-infuse {
+          animation: power-up-infuse 600ms ease-in forwards;
+      }
+    </style>
+  <script type="importmap">
+{
+  "imports": {
+    "react/": "https://esm.sh/react@^19.1.1/",
+    "react": "https://esm.sh/react@^19.1.1",
+    "react-dom/": "https://esm.sh/react-dom@^19.1.1/",
+    "@capacitor/core": "https://esm.sh/@capacitor/core@^6.0.0",
+    "@capacitor/status-bar": "https://esm.sh/@capacitor/status-bar@^6.0.0",
+    "@capacitor/app": "https://esm.sh/@capacitor/app@^6.0.0",
+    "react-dom": "https://aistudiocdn.com/react-dom@^19.2.0"
+  }
+}
+</script>
+</head>
+  <body>
+    <div id="splash-screen">
+      <picture>
+        <source srcset="/Assets/splash_1080w_q82.webp" type="image/webp">
+        <img src="/Assets/Splash_Screen.png" alt="Galaxia loading screen">
+      </picture>
+      <div id="loading-container" style="position: absolute; bottom: 15%; left: 50%; transform: translateX(-50%); width: 70%; max-width: 350px; text-align: center; color: white; z-index: 1;">
+        <p id="loading-text" style="font-size: 1.25rem; text-shadow: 1px 1px 3px black; font-weight: bold; letter-spacing: 0.1em;">LOADING...</p>
+        <div id="loading-bar-bg" style="width: 100%; height: 10px; background-color: rgba(0,0,0,0.5); border-radius: 5px; margin-top: 8px; border: 1px solid rgba(255,255,255,0.3); overflow: hidden;">
+            <div id="loading-bar-fg" style="width: 0%; height: 100%; background-color: #06b6d4; border-radius: 5px; transition: width 0.3s ease-out;"></div>
+        </div>
+      </div>
+    </div>
+    <div id="root"></div>
+    <script type="module" src="/index.tsx"></script>
+    <script>
+      if ('serviceWorker' in navigator) {
+        window.addEventListener('load', () => {
+          navigator.serviceWorker.register('/sw.js').then(() => {
+            // ServiceWorker registered
+          }, () => {
+            // ServiceWorker registration failed
+          });
+        });
+      }
+    </script>
+  </body>
+</html>

@@ -1,0 +1,9 @@
+node_modules/
+dist/
+android/
+ios/
+*.log
+.DS_Store
+**/node_modules/**/*.gradle
+**/node_modules/**/build.gradle
+
