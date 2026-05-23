@@ -1,4 +1,4 @@
-import type { GameState, Projectile, ShellCasing } from '../types';
+import type { GameState, Projectile, ShellCasing, Enemy, Boss } from '../types';
 import { GameStatus } from '../types';
 import * as C from '../constants';
 import { pools } from '../state/pools';
@@ -18,6 +18,32 @@ const cosCache = new Map<number, number>();
 const MAX_SIN_CACHE_SIZE = 10000; // Increased from 1000 to handle asteroid field with many asteroids
 // ✅ PERFORMANCE: Cache frequently used math constant
 const PI_OVER_180 = Math.PI / 180;
+const BETA_HOMING_RANGE = 500;
+const BETA_HOMING_RANGE_SQ = BETA_HOMING_RANGE * BETA_HOMING_RANGE;
+
+type HomingTarget = Enemy | Boss;
+const HOMING_TARGET_BUCKET_SIZE = C.IS_MOBILE ? C.MOBILE_HOMING_TARGET_BUCKET_SIZE : 180;
+const HOMING_TARGET_MIN_Y = -C.OFFSCREEN_BUFFER;
+const HOMING_TARGET_MAX_Y = C.GAME_GRID_HEIGHT + C.GAME_HEIGHT_BUFFER;
+const HOMING_TARGET_BUCKET_COUNT = Math.ceil((HOMING_TARGET_MAX_Y - HOMING_TARGET_MIN_Y) / HOMING_TARGET_BUCKET_SIZE) + 2;
+const homingTargetBuckets: HomingTarget[][] = Array.from({ length: HOMING_TARGET_BUCKET_COUNT }, () => []);
+
+function getHomingBucketIndex(y: number): number {
+    const rawIndex = Math.floor((y - HOMING_TARGET_MIN_Y) / HOMING_TARGET_BUCKET_SIZE);
+    if (rawIndex < 0) return 0;
+    if (rawIndex >= HOMING_TARGET_BUCKET_COUNT) return HOMING_TARGET_BUCKET_COUNT - 1;
+    return rawIndex;
+}
+
+function resetHomingTargetBuckets(): void {
+    for (let i = 0; i < HOMING_TARGET_BUCKET_COUNT; i++) {
+        homingTargetBuckets[i].length = 0;
+    }
+}
+
+function addHomingTarget(target: HomingTarget): void {
+    homingTargetBuckets[getHomingBucketIndex(target.y)].push(target);
+}
 
 export function getCachedSin(phaseAngle: number): number {
     // Quantize the phase angle to reduce cache size
@@ -76,7 +102,7 @@ export function updatePlayer(state: GameState, pressedKeys: Set<string>, delta: 
     let { 
         playerVx, playerX, ammo, reloadCompleteTime, playedEmptyClipSound,
         lastPlayerShotTime, lastTridentShotTime, activePowerUps, reloadBoosts,
-        touchState, playerDebuffs, activeRareConsumable
+        touchState, activeRareConsumable
     } = state;
     
     const newProjectiles: Projectile[] = [];
@@ -397,6 +423,24 @@ export function updateEntities(state: GameState, delta: number, now: number, eff
     }
 
     // Move Projectiles
+    const betaHomingLevel = state.selectedHero === 'beta' ? state.heroUpgrades.beta_homing_level : 0;
+    const hasBetaHoming = betaHomingLevel > 0;
+    let homingStrength = 0;
+    if (hasBetaHoming) {
+        homingStrength = C.HANGAR_BETA_UPGRADE_CONFIG[betaHomingLevel - 1].effect;
+        resetHomingTargetBuckets();
+
+        for (let i = 0; i < enemiesLen; i++) {
+            const target = enemies[i];
+            if (target.isBuffedByConduit) continue;
+            addHomingTarget(target);
+        }
+
+        if (state.boss && state.boss.phase !== 'defeated') {
+            addHomingTarget(state.boss);
+        }
+    }
+
     // ✅ CRITICAL PERFORMANCE: Manual loop instead of for...of to avoid iterator allocation
     const projectilesLen = projectiles.length;
     for (let i = 0; i < projectilesLen; i++) {
@@ -407,38 +451,30 @@ export function updateEntities(state: GameState, delta: number, now: number, eff
         let newY = p.y - speedY * delta;
         let newX = p.x + speedX * delta;
         
-        if (state.selectedHero === 'beta' && state.heroUpgrades.beta_homing_level > 0) {
-            // ✅ OPTIMIZATION: Avoid array spread allocation - check enemies and boss separately
-            const BETA_HOMING_RANGE_SQ = 500 * 500; // Pre-compute squared range
-            let nearestEnemy = null, minDistanceSq = Infinity;
-            
-            // Check enemies
-            // ✅ CRITICAL PERFORMANCE: Manual loop instead of for...of to avoid iterator allocation
-            for (let j = 0; j < enemiesLen; j++) {
-                const target = enemies[j];
-                if (target.y > p.y) continue;
-                // Skip enemies that are invulnerable due to conduit shield
-                if ('isBuffedByConduit' in target && target.isBuffedByConduit) continue;
-                const dx = target.x - newX, dy = target.y - newY;
-                const distanceSq = dx * dx + dy * dy;
-                if (distanceSq < minDistanceSq) { minDistanceSq = distanceSq; nearestEnemy = target; }
-            }
-            
-            // Check boss if present
-            if (state.boss) {
-                const target = state.boss;
-                if (target.y <= p.y) {
-                    // Skip if invulnerable due to conduit shield (bosses don't have this, but check for consistency)
-                    if (!('isBuffedByConduit' in target) || !target.isBuffedByConduit) {
-                        const dx = target.x - newX, dy = target.y - newY;
-                        const distanceSq = dx * dx + dy * dy;
-                        if (distanceSq < minDistanceSq) { minDistanceSq = distanceSq; nearestEnemy = target; }
+        if (hasBetaHoming) {
+            let nearestEnemy: HomingTarget | null = null;
+            let minDistanceSq = BETA_HOMING_RANGE_SQ;
+
+            const minBucket = getHomingBucketIndex(newY - BETA_HOMING_RANGE);
+            const maxBucket = getHomingBucketIndex(newY);
+
+            for (let b = minBucket; b <= maxBucket; b++) {
+                const bucket = homingTargetBuckets[b];
+                const bucketLen = bucket.length;
+                for (let j = 0; j < bucketLen; j++) {
+                    const target = bucket[j];
+                    if (target.y > p.y) continue;
+                    const dx = target.x - newX;
+                    const dy = target.y - newY;
+                    const distanceSq = dx * dx + dy * dy;
+                    if (distanceSq < minDistanceSq) {
+                        minDistanceSq = distanceSq;
+                        nearestEnemy = target;
                     }
                 }
             }
-            
-            if (nearestEnemy && minDistanceSq < BETA_HOMING_RANGE_SQ) {
-                const homingStrength = C.HANGAR_BETA_UPGRADE_CONFIG[state.heroUpgrades.beta_homing_level - 1].effect;
+
+            if (nearestEnemy) {
                 const direction = Math.sign(nearestEnemy.x - newX);
                 newX += direction * C.BETA_HOMING_MAX_SPEED * homingStrength * delta;
             }

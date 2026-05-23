@@ -60,7 +60,11 @@ export class SpatialGrid {
      * Clears all objects from the grid. Should be called at the start of each frame.
      */
     public clear(): void {
-        this.cells.clear();
+        // Keep cell arrays allocated and just truncate them. This avoids
+        // re-allocating many short-lived arrays every frame.
+        for (const cell of this.cells.values()) {
+            cell.length = 0;
+        }
     }
 
     /**
@@ -73,10 +77,12 @@ export class SpatialGrid {
         for (let c = startCol; c <= endCol; c++) {
             for (let r = startRow; r <= endRow; r++) {
                 const key = this.getCellKey(c, r);
-                if (!this.cells.has(key)) {
-                    this.cells.set(key, []);
+                let cell = this.cells.get(key);
+                if (!cell) {
+                    cell = [];
+                    this.cells.set(key, cell);
                 }
-                this.cells.get(key)!.push(obj);
+                cell.push(obj);
             }
         }
     }
@@ -89,14 +95,21 @@ export class SpatialGrid {
      * @returns An array of nearby collidable objects.
      */
     public getNearby(obj: Collidable): Collidable[] {
+        return this.getNearbyInto(obj, this.nearbyResultCache);
+    }
+
+    /**
+     * Variant of getNearby that writes into a caller-provided array.
+     * Useful for nested queries to avoid clobbering another active result set.
+     */
+    public getNearbyInto(obj: Collidable, output: Collidable[]): Collidable[] {
         // Increment global query ID for this search operation
         SpatialGrid.globalQueryId++;
         const currentQueryId = SpatialGrid.globalQueryId;
         
         const { startCol, endCol, startRow, endRow } = this.getCellIndices(obj);
         
-        // Reuse the cache array to avoid allocation
-        this.nearbyResultCache.length = 0;
+        output.length = 0;
 
         for (let c = startCol; c <= endCol; c++) {
             for (let r = startRow; r <= endRow; r++) {
@@ -110,13 +123,13 @@ export class SpatialGrid {
                         // We use the tagged property on the object itself (zero allocation)
                         if (item.id !== obj.id && item._lastQueryId !== currentQueryId) {
                             item._lastQueryId = currentQueryId;
-                            this.nearbyResultCache.push(item);
+                            output.push(item);
                         }
                     }
                 }
             }
         }
         
-        return this.nearbyResultCache;
+        return output;
     }
 }

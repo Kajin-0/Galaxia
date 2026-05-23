@@ -39,6 +39,9 @@ export function gameReducer(state: GameState, action: GameAction): GameState {
 
         case 'TOUCH_MOVE': {
             if (state.touchState.isActive && state.touchState.identifier === action.identifier) {
+                if (state.touchState.currentX === action.x) {
+                    return state;
+                }
                 return {
                     ...state,
                     touchState: {

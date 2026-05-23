@@ -11,7 +11,8 @@ let cachedContainerSize: { width: number; height: number } | null = null;
 let lastContainerSizeCheck = 0;
 const CONTAINER_SIZE_CACHE_MS = 100; // Update every 100ms (10 times per second instead of 60)
 const FIXED_TIMESTEP_S = 1 / 60;
-const MAX_SIMULATION_STEPS_PER_FRAME = C.IS_MOBILE ? 3 : 5;
+const MAX_SIMULATION_STEPS_PER_FRAME = C.IS_MOBILE ? C.MOBILE_MAX_SIMULATION_STEPS_PER_FRAME : 5;
+const MAX_FRAME_DELTA_S = C.IS_MOBILE ? C.MOBILE_MAX_FRAME_DELTA_S : 0.25;
 const SIMULATION_STATES = new Set<GameStatus>([
     GameStatus.Playing,
     GameStatus.BossBattle,
@@ -78,22 +79,24 @@ export const useGameLoop = ({
                 }
                 
                 // Cap the delta to prevent the "spiral of death" on long pauses or tab-out.
-                // 0.25s is about 15 frames worth of catch-up, a reasonable limit.
-                accumulator.current += Math.min(delta, 0.25);
+                // Mobile path uses a conservative cap for older hardware stability.
+                accumulator.current += Math.min(delta, MAX_FRAME_DELTA_S);
 
                 let simulationSteps = 0;
                 while (accumulator.current >= FIXED_TIMESTEP_S && simulationSteps < MAX_SIMULATION_STEPS_PER_FRAME) {
-                    // Removed flushSync to prevent synchronous reflows and stutter.
-                    // React batching handles updates, and engineStateRef is updated synchronously in render.
-                    dispatch({
-                        type: 'GAME_TICK',
-                        delta: FIXED_TIMESTEP_S,
-                        timestamp: timestamp,
-                        pressedKeys: pressedKeys.current,
-                        containerSize: cachedContainerSize, // ✅ Use cached value instead of calling getBoundingClientRect()
-                    });
                     accumulator.current -= FIXED_TIMESTEP_S;
                     simulationSteps++;
+                }
+
+                if (simulationSteps > 0) {
+                    dispatch({
+                        type: 'GAME_TICK_BATCH',
+                        steps: simulationSteps,
+                        delta: FIXED_TIMESTEP_S,
+                        timestamp,
+                        pressedKeys: pressedKeys.current,
+                        containerSize: cachedContainerSize,
+                    });
                 }
 
                 // Drop excess debt to avoid large catch-up spikes on mobile.
@@ -143,7 +146,7 @@ export const useGameLoop = ({
         animationFrameId = requestAnimationFrame(loop);
         return () => cancelAnimationFrame(animationFrameId);
     // The dependency array is now much cleaner. The ref objects are stable and don't need to be listed.
-    }, [dispatch, pressedKeys, gameAreaRef, engineStateRef, noiseCanvasRef, contextsReady]);
+    }, [dispatch, status, pressedKeys, gameAreaRef, engineStateRef, gridCtxRef, gameCtxRef, effectsCtxRef, noiseCanvasRef, contextsReady]);
 
 
     useEffect(() => {

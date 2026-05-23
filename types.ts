@@ -631,7 +631,7 @@ export type GameAction =
   | { type: 'TOUCH_START'; x: number; identifier: number }
   | { type: 'TOUCH_MOVE'; x: number; identifier: number }
   | { type: 'TOUCH_END'; identifier: number }
-  | { type: 'GAME_TICK'; delta: number; timestamp: number; pressedKeys: Set<string>; containerSize?: {width: number, height: number} }
+  | { type: 'GAME_TICK_BATCH'; steps: number; delta: number; timestamp: number; pressedKeys: Set<string>; containerSize?: {width: number, height: number} }
   | { type: 'UPDATE_GRID_OFFSET'; delta: number }
   // In-App Purchase actions
   | { type: 'INITIATE_PURCHASE'; productId: IAPProductId }

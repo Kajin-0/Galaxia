@@ -1,4 +1,4 @@
-import type { GameState, GameAction, Enemy as EnemyType, DamageNumber, Asteroid as AsteroidType, PowerUp, TrainingTarget, Boss, EnemyProjectile as EnemyProjectileType } from '../types';
+import type { GameState, Enemy as EnemyType, DamageNumber, Asteroid as AsteroidType, PowerUp, TrainingTarget, Boss, EnemyProjectile as EnemyProjectileType } from '../types';
 import { GameStatus } from '../types';
 import * as C from '../constants';
 import { pools } from '../state/pools';
@@ -33,12 +33,32 @@ export function resetNextId() {
     nextId = 10000;
 }
 
+export interface GameTickStep {
+    delta: number;
+    timestamp: number;
+    pressedKeys: Set<string>;
+    containerSize?: { width: number; height: number };
+}
+
 // ✅ OPTIMIZATION: Reusable array for boss in renderable sorting to avoid allocation every frame
 const reusableBossArray: Boss[] = [];
-// ✅ MOBILE OPTIMIZATION: Reusable array for sorted renderables to eliminate 60+ allocations per second
-const reusableSortedRenderables: (EnemyType | AsteroidType | PowerUp | TrainingTarget | Boss)[] = [];
+// ✅ MOBILE OPTIMIZATION: Double-buffer sorted renderables to avoid per-tick slice allocations.
+const sortedRenderablesBuffers: Array<(EnemyType | AsteroidType | PowerUp | TrainingTarget | Boss)[]> = [[], []];
+let sortedRenderablesBufferIndex = 0;
 // ✅ MOBILE OPTIMIZATION: Reusable spatial grid to eliminate object + Map allocation every frame
 const reusableSpatialGrid = new SpatialGrid(C.GAME_WIDTH, C.GAME_GRID_HEIGHT, 150);
+const reusablePlayerMainCollidable: Collidable = {
+    id: -1,
+    x: 0,
+    y: 0,
+    radius: C.PLAYER_HITBOX_MAIN_RADIUS
+};
+const reusablePlayerNoseCollidable: Collidable = {
+    id: -2,
+    x: 0,
+    y: 0,
+    radius: C.PLAYER_HITBOX_NOSE_RADIUS
+};
 const SIMULATION_STATES = new Set<GameStatus>([
     GameStatus.Playing,
     GameStatus.BossBattle,
@@ -76,6 +96,13 @@ function appendArray2<T>(base: T[], additionsA: T[], additionsB: T[]): T[] {
     for (let i = 0; i < aLen; i++) result[idx++] = additionsA[i];
     for (let i = 0; i < bLen; i++) result[idx++] = additionsB[i];
     return result;
+}
+
+function getNextSortedRenderablesBuffer(): (EnemyType | AsteroidType | PowerUp | TrainingTarget | Boss)[] {
+    sortedRenderablesBufferIndex = (sortedRenderablesBufferIndex + 1) & 1;
+    const buffer = sortedRenderablesBuffers[sortedRenderablesBufferIndex];
+    buffer.length = 0;
+    return buffer;
 }
 
 // Helper function for sorting nearly-sorted arrays efficiently.
@@ -400,7 +427,7 @@ function _handlePreSimulationUpdates(state: GameState, effectiveNow: number): Pa
 }
 
 
-function runGameTickLogic(state: GameState, action: Extract<GameAction, { type: 'GAME_TICK' }>, now: number, effectiveNow: number, delta: number, grid: SpatialGrid, performanceTimestamp: number): GameState {
+function runGameTickLogic(state: GameState, action: GameTickStep, now: number, effectiveNow: number, delta: number, grid: SpatialGrid, performanceTimestamp: number): GameState {
     
     // --- FULL SIMULATION FOR ACTIVE STATES ---
     if (state.status === GameStatus.PlayerDying) {
@@ -522,8 +549,7 @@ function runGameTickLogic(state: GameState, action: Extract<GameAction, { type: 
         }
         
         // --- Step 9: Sort Renderables ---
-        // ✅ MOBILE OPTIMIZATION: Reuse array instead of allocating every frame (eliminates 60+ allocations/second)
-        reusableSortedRenderables.length = 0;
+        const sortedRenderables = getNextSortedRenderablesBuffer();
         insertionSort(newState.enemies);
         insertionSort(newState.asteroids);
         insertionSort(newState.powerUps);
@@ -561,14 +587,13 @@ function runGameTickLogic(state: GameState, action: Extract<GameAction, { type: 
             if (y4 < minY) minY = y4;
             if (y5 < minY) minY = y5;
     
-            if (minY === y1) { reusableSortedRenderables.push(e1!); i++; }
-            else if (minY === y2) { reusableSortedRenderables.push(e2!); j++; }
-            else if (minY === y3) { reusableSortedRenderables.push(e3!); k++; }
-            else if (minY === y4) { reusableSortedRenderables.push(e4!); l++; }
-            else { reusableSortedRenderables.push(e5!); m++; }
+            if (minY === y1) { sortedRenderables.push(e1!); i++; }
+            else if (minY === y2) { sortedRenderables.push(e2!); j++; }
+            else if (minY === y3) { sortedRenderables.push(e3!); k++; }
+            else if (minY === y4) { sortedRenderables.push(e4!); l++; }
+            else { sortedRenderables.push(e5!); m++; }
         }
-        // Create a new array reference for state to avoid mutation issues
-        newState.sortedRenderables = reusableSortedRenderables.slice();
+        newState.sortedRenderables = sortedRenderables;
 
         return newState;
     }
@@ -707,8 +732,12 @@ function runGameTickLogic(state: GameState, action: Extract<GameAction, { type: 
         stateAfterDebuffs.boss.radius = bossWidth / 2;
         grid.insert(stateAfterDebuffs.boss as unknown as Collidable);
     }
-    grid.insert({ id: -1, x: stateAfterDebuffs.playerX, y: C.PLAYER_Y_POSITION + C.PLAYER_HITBOX_MAIN_Y_OFFSET, radius: C.PLAYER_HITBOX_MAIN_RADIUS });
-    grid.insert({ id: -2, x: stateAfterDebuffs.playerX, y: C.PLAYER_Y_POSITION + C.PLAYER_HITBOX_NOSE_Y_OFFSET, radius: C.PLAYER_HITBOX_NOSE_RADIUS });
+    reusablePlayerMainCollidable.x = stateAfterDebuffs.playerX;
+    reusablePlayerMainCollidable.y = C.PLAYER_Y_POSITION + C.PLAYER_HITBOX_MAIN_Y_OFFSET;
+    grid.insert(reusablePlayerMainCollidable);
+    reusablePlayerNoseCollidable.x = stateAfterDebuffs.playerX;
+    reusablePlayerNoseCollidable.y = C.PLAYER_Y_POSITION + C.PLAYER_HITBOX_NOSE_Y_OFFSET;
+    grid.insert(reusablePlayerNoseCollidable);
     
     // --- Step 9: Resolve Collisions using the final grid ---
     const collisionResults = resolveCollisions(stateAfterDebuffs, now, effectiveNow, grid);
@@ -730,8 +759,7 @@ function runGameTickLogic(state: GameState, action: Extract<GameAction, { type: 
     newState.enemiesDefeatedInLevel += collisionResults.enemiesDefeatedThisTick;
 
     // --- Step 10: Sort Renderables ---
-    // ✅ MOBILE OPTIMIZATION: Reuse array instead of allocating every frame (eliminates 60+ allocations/second)
-    reusableSortedRenderables.length = 0;
+    const sortedRenderables = getNextSortedRenderablesBuffer();
     
     // ✅ MOBILE OPTIMIZATION: Only sort if arrays changed significantly
     const enemiesChanged = Math.abs(newState.enemies.length - (state.enemies?.length || 0)) > 2;
@@ -781,14 +809,13 @@ function runGameTickLogic(state: GameState, action: Extract<GameAction, { type: 
         if (y4 < minY) minY = y4;
         if (y5 < minY) minY = y5;
 
-        if (minY === y1) { reusableSortedRenderables.push(e1!); i++; }
-        else if (minY === y2) { reusableSortedRenderables.push(e2!); j++; }
-        else if (minY === y3) { reusableSortedRenderables.push(e3!); k++; }
-        else if (minY === y4) { reusableSortedRenderables.push(e4!); l++; }
-        else { reusableSortedRenderables.push(e5!); m++; }
+        if (minY === y1) { sortedRenderables.push(e1!); i++; }
+        else if (minY === y2) { sortedRenderables.push(e2!); j++; }
+        else if (minY === y3) { sortedRenderables.push(e3!); k++; }
+        else if (minY === y4) { sortedRenderables.push(e4!); l++; }
+        else { sortedRenderables.push(e5!); m++; }
     }
-    // Create a new array reference for state to avoid mutation issues
-    newState.sortedRenderables = reusableSortedRenderables.slice();
+    newState.sortedRenderables = sortedRenderables;
 
     // --- Step 11: Post-Tick State Transitions (Atomic) ---
     const { playerDied, playerDeathPosition } = collisionResults;
@@ -799,7 +826,7 @@ function runGameTickLogic(state: GameState, action: Extract<GameAction, { type: 
     return checkStateTransitions(newState, performanceTimestamp);
 }
 
-export function runGameTick(state: GameState, action: Extract<GameAction, { type: 'GAME_TICK' }>): GameState {
+export function runGameTick(state: GameState, action: GameTickStep): GameState {
     const { delta: delta_s, timestamp: performanceTimestamp } = action;
     const isSimulating = SIMULATION_STATES.has(state.status);
 

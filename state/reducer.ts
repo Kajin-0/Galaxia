@@ -11,6 +11,11 @@ import { gameReducer as engineReducer } from './engineReducer';
 // ============================================================================
 
 export function gameReducer(state: GameState, action: GameAction): GameState {
+    // Fast-path hot simulation actions to avoid running unrelated reducers every tick.
+    if (action.type === 'GAME_TICK_BATCH') {
+        return engineReducer(state, action);
+    }
+
     let nextState = uiReducer(state, action);
     if (nextState !== state) return nextState;
 

@@ -36,6 +36,15 @@ const detectMobile = (): boolean => {
 // This is used in hot paths, so caching avoids repeated regex tests
 export const IS_MOBILE = typeof window !== 'undefined' && /Android|iPhone|iPad|iPod/i.test(window.navigator.userAgent);
 
+// Mobile-first, old-hardware-first backend budgets.
+// Keep this fixed and conservative so behavior is simple and universal.
+export const MOBILE_MAX_SIMULATION_STEPS_PER_FRAME = 2;
+export const MOBILE_MAX_FRAME_DELTA_S = 0.18;
+export const MOBILE_HOMING_TARGET_BUCKET_SIZE = 140;
+export const MOBILE_DODGER_PROJECTILE_BUCKET_SIZE = 140;
+export const MOBILE_DODGER_SCAN_INTERVAL_MS = 48;
+export const MOBILE_DODGER_MAX_THREATS = 6;
+
 export const PLAYER_Y_POSITION = detectMobile()
     ? GAME_GRID_HEIGHT // Positioned at the very bottom of the grid for maximum visibility on mobile
     : GAME_GRID_HEIGHT - 60; // Adjusted for desktop, using the previous mobile value for a lower position

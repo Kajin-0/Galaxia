@@ -14,6 +14,24 @@ import { getCachedSin, getCachedCos } from './update';
 
 // ✅ PERFORMANCE: Cache frequently used math constant
 const PI_OVER_180 = Math.PI / 180;
+const DODGER_PROJECTILE_BUCKET_SIZE = C.IS_MOBILE ? C.MOBILE_DODGER_PROJECTILE_BUCKET_SIZE : 180;
+const DODGER_PROJECTILE_MIN_Y = -C.OFFSCREEN_BUFFER;
+const DODGER_PROJECTILE_MAX_Y = C.GAME_GRID_HEIGHT + C.GAME_HEIGHT_BUFFER;
+const DODGER_PROJECTILE_BUCKET_COUNT = Math.ceil((DODGER_PROJECTILE_MAX_Y - DODGER_PROJECTILE_MIN_Y) / DODGER_PROJECTILE_BUCKET_SIZE) + 2;
+const dodgerProjectileBuckets: ProjectileType[][] = Array.from({ length: DODGER_PROJECTILE_BUCKET_COUNT }, () => []);
+
+function getDodgerProjectileBucketIndex(y: number): number {
+    const rawIndex = Math.floor((y - DODGER_PROJECTILE_MIN_Y) / DODGER_PROJECTILE_BUCKET_SIZE);
+    if (rawIndex < 0) return 0;
+    if (rawIndex >= DODGER_PROJECTILE_BUCKET_COUNT) return DODGER_PROJECTILE_BUCKET_COUNT - 1;
+    return rawIndex;
+}
+
+function resetDodgerProjectileBuckets(): void {
+    for (let i = 0; i < DODGER_PROJECTILE_BUCKET_COUNT; i++) {
+        dodgerProjectileBuckets[i].length = 0;
+    }
+}
 
 // Per-dodger scan scheduling: avoids scanning every frame
 export const dodgerNextScanAt = new Map<EnemyType, number>();
@@ -400,6 +418,8 @@ export function runStandardEnemyAI(state: GameState, now: number, effectiveNow: 
     const level = state.level;
     const fireRateMultiplier = isHardMode ? HARD_MODE_MULTIPLIERS.ENEMY_FIRE_RATE : 1.0;
     const hardModeEnemySpeed = isHardMode ? HARD_MODE_MULTIPLIERS.ENEMY_SPEED : 1.0;
+    const dodgerScanIntervalMs = C.IS_MOBILE ? C.MOBILE_DODGER_SCAN_INTERVAL_MS : 32;
+    const dodgerMaxThreats = C.IS_MOBILE ? C.MOBILE_DODGER_MAX_THREATS : 8;
 
     // ✅ MOBILE OPTIMIZATION: Reuse Maps instead of allocating new ones every frame
     if (!aiEnemyUpdatesCache) {
@@ -412,10 +432,26 @@ export function runStandardEnemyAI(state: GameState, now: number, effectiveNow: 
     aiAsteroidUpdatesCache.clear();
     const enemyUpdates = aiEnemyUpdatesCache;
     const asteroidUpdates = aiAsteroidUpdatesCache;
+    const enemiesLen = enemies.length;
     
     const newEnemyProjectiles: EnemyProjectileType[] = [];
     const newWeaverBeams: WeaverBeam[] = [];
     const newWeaverSurges: WeaverSurge[] = [];
+    let hasDodgers = false;
+    for (let i = 0; i < enemiesLen; i++) {
+        if (enemies[i].type === 'dodger') {
+            hasDodgers = true;
+            break;
+        }
+    }
+    if (hasDodgers && projectiles.length > 0) {
+        resetDodgerProjectileBuckets();
+        const projectilesLen = projectiles.length;
+        for (let i = 0; i < projectilesLen; i++) {
+            const proj = projectiles[i];
+            dodgerProjectileBuckets[getDodgerProjectileBucketIndex(proj.y)].push(proj);
+        }
+    }
 
     // --- OPTIMIZATION: Mutate existing update objects instead of creating new ones with spread syntax ---
     const setEnemyUpdate = (id: number, update: Partial<EnemyType>) => {
@@ -436,7 +472,6 @@ export function runStandardEnemyAI(state: GameState, now: number, effectiveNow: 
     };
 
     // ✅ MOBILE OPTIMIZATION: Manual loop instead of forEach to avoid closure allocation
-    const enemiesLen = enemies.length;
     for (let idx = 0; idx < enemiesLen; idx++) {
         const e = enemies[idx];
         // ✅ MOBILE OPTIMIZATION: Direct property access instead of creating merged object
@@ -471,43 +506,48 @@ export function runStandardEnemyAI(state: GameState, now: number, effectiveNow: 
                 dodgerNextScanAt.set(e, nextAt);
             } else {
                 // Always-on throttle: scan every ~2 frames
-                const SCAN_INTERVAL_MS = 32;
                 const nextAt = dodgerNextScanAt.get(e) ?? 0;
                 if (effectiveNow >= nextAt) {
-                    const MAX_THREATS = 8; // cap threats considered per scan
+                    const maxThreats = dodgerMaxThreats;
                     const threats = arrayPools.tempProjectiles.get();
                     const detectionRadius = 300;
                     const detectionRadiusSq = detectionRadius * detectionRadius;
+                    const maxProjectileY = eY + detectionRadius;
+                    const minBucket = getDodgerProjectileBucketIndex(eY);
+                    const maxBucket = getDodgerProjectileBucketIndex(maxProjectileY);
                     let collected = 0;
-                    const projectilesLen = projectiles.length;
-                    for (let pIdx = 0; pIdx < projectilesLen; pIdx++) {
-                        if (collected >= MAX_THREATS) break;
-                        const proj = projectiles[pIdx];
-                        // Fast rejection
-                        const dx = proj.x - eX;
-                        const dy = proj.y - eY;
-                        const distSq = dx*dx + dy*dy;
-                        if (distSq > detectionRadiusSq) continue;
-                        if (proj.y < eY) continue;
-                        const projectileSpeedY = getCachedCos((proj.angle || 0) * PI_OVER_180) * C.PROJECTILE_SPEED;
-                        if (projectileSpeedY <= 0) continue;
-                        // Intercept window
-                        const enemySpeedY = C.ENEMY_SPEED * hardModeEnemySpeed;
-                        const closingSpeed = projectileSpeedY + enemySpeedY;
-                        if (closingSpeed <= 0) continue;
-                        const timeToIntercept = (proj.y - eY) / closingSpeed;
-                        if (timeToIntercept < 0 || timeToIntercept > reactionTime) continue;
-                        // Predict X
-                        const projectileSpeedX = Math.sin((proj.angle || 0) * PI_OVER_180) * C.PROJECTILE_SPEED;
-                        const predictedProjX = proj.x + projectileSpeedX * timeToIntercept;
-                        const timeAtIntercept = effectiveNow + (timeToIntercept * 1000);
-                        const predictedEnemyX = eBaseX
-                            + Math.sin((timeAtIntercept / 1000) * eOscillationFrequency + eOscillationOffset)
-                            * eOscillationAmplitude;
-                        const threatRadius = C.ENEMY_HITBOX_RADIUS * 4.0;
-                        if (Math.abs(predictedProjX - predictedEnemyX) < threatRadius) {
-                            threats.push(proj);
-                            collected++;
+                    for (let b = minBucket; b <= maxBucket && collected < maxThreats; b++) {
+                        const bucket = dodgerProjectileBuckets[b];
+                        const bucketLen = bucket.length;
+                        for (let pIdx = 0; pIdx < bucketLen; pIdx++) {
+                            if (collected >= maxThreats) break;
+                            const proj = bucket[pIdx];
+                            // Fast rejection
+                            const dx = proj.x - eX;
+                            const dy = proj.y - eY;
+                            const distSq = dx*dx + dy*dy;
+                            if (distSq > detectionRadiusSq) continue;
+                            if (proj.y < eY) continue;
+                            const projectileSpeedY = getCachedCos((proj.angle || 0) * PI_OVER_180) * C.PROJECTILE_SPEED;
+                            if (projectileSpeedY <= 0) continue;
+                            // Intercept window
+                            const enemySpeedY = C.ENEMY_SPEED * hardModeEnemySpeed;
+                            const closingSpeed = projectileSpeedY + enemySpeedY;
+                            if (closingSpeed <= 0) continue;
+                            const timeToIntercept = (proj.y - eY) / closingSpeed;
+                            if (timeToIntercept < 0 || timeToIntercept > reactionTime) continue;
+                            // Predict X
+                            const projectileSpeedX = Math.sin((proj.angle || 0) * PI_OVER_180) * C.PROJECTILE_SPEED;
+                            const predictedProjX = proj.x + projectileSpeedX * timeToIntercept;
+                            const timeAtIntercept = effectiveNow + (timeToIntercept * 1000);
+                            const predictedEnemyX = eBaseX
+                                + Math.sin((timeAtIntercept / 1000) * eOscillationFrequency + eOscillationOffset)
+                                * eOscillationAmplitude;
+                            const threatRadius = C.ENEMY_HITBOX_RADIUS * 4.0;
+                            if (Math.abs(predictedProjX - predictedEnemyX) < threatRadius) {
+                                threats.push(proj);
+                                collected++;
+                            }
                         }
                     }
                     if (threats.length > 0) {
@@ -534,7 +574,7 @@ export function runStandardEnemyAI(state: GameState, now: number, effectiveNow: 
                         setEnemyUpdate(e.id, { isDodging: true, dodgeTargetX: targetX, dodgeCooldownUntil: effectiveNow + scaledCooldown });
                     }
                     arrayPools.tempProjectiles.release(threats);
-                    dodgerNextScanAt.set(e, effectiveNow + SCAN_INTERVAL_MS);
+                    dodgerNextScanAt.set(e, effectiveNow + dodgerScanIntervalMs);
                 }
             }
         } else if (eType === 'weaver') {

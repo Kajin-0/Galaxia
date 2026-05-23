@@ -16,6 +16,8 @@ export const useInputHandler = (
     status: GameStatus
 ) => {
     const pressedKeys = useRef(new Set<string>());
+    const queuedTouchMoves = useRef(new Map<number, number>());
+    const touchMoveRafId = useRef<number | null>(null);
 
     // --- Keyboard Handling ---
     const handleKeyDown = useCallback((e: KeyboardEvent) => {
@@ -42,6 +44,17 @@ export const useInputHandler = (
         };
     }, [handleKeyDown]);
 
+    useEffect(() => {
+        const queuedMovesAtMount = queuedTouchMoves.current;
+        return () => {
+            if (touchMoveRafId.current !== null) {
+                cancelAnimationFrame(touchMoveRafId.current);
+                touchMoveRafId.current = null;
+            }
+            queuedMovesAtMount.clear();
+        };
+    }, []);
+
     // --- Touch Handling ---
     const getGameCoordXForTouch = useCallback((touch: React.Touch | globalThis.Touch): number | null => {
         if (gameAreaRef.current) {
@@ -56,12 +69,40 @@ export const useInputHandler = (
         }
         return null;
     }, [gameAreaRef]);
+
+    const flushQueuedTouchMove = useCallback(() => {
+        touchMoveRafId.current = null;
+        if (queuedTouchMoves.current.size === 0) return;
+        queuedTouchMoves.current.forEach((x, identifier) => {
+            dispatch({ type: 'TOUCH_MOVE', x, identifier });
+        });
+        queuedTouchMoves.current.clear();
+    }, [dispatch]);
+
+    const queueTouchMove = useCallback((x: number, identifier: number) => {
+        queuedTouchMoves.current.set(identifier, x);
+        if (touchMoveRafId.current !== null) return;
+        touchMoveRafId.current = requestAnimationFrame(flushQueuedTouchMove);
+    }, [flushQueuedTouchMove]);
+
+    const clearQueuedTouchMoveFor = useCallback((identifier: number) => {
+        queuedTouchMoves.current.delete(identifier);
+        if (queuedTouchMoves.current.size === 0 && touchMoveRafId.current !== null) {
+            cancelAnimationFrame(touchMoveRafId.current);
+            touchMoveRafId.current = null;
+        }
+    }, []);
     
     const handleTouchStart = useCallback((e: React.TouchEvent<HTMLDivElement>) => {
         const gameActive = status === GameStatus.Playing || status === GameStatus.BossBattle || status === GameStatus.AsteroidField || status === GameStatus.TrainingSim;
         if (!gameActive) return;
 
         e.preventDefault();
+        queuedTouchMoves.current.clear();
+        if (touchMoveRafId.current !== null) {
+            cancelAnimationFrame(touchMoveRafId.current);
+            touchMoveRafId.current = null;
+        }
         // Handle multiple touches starting at once, reducer will pick the first one.
         for (let i = 0; i < e.changedTouches.length; i++) {
             const touch = e.changedTouches.item(i);
@@ -85,10 +126,10 @@ export const useInputHandler = (
             
             const gameCoordX = getGameCoordXForTouch(touch);
             if (gameCoordX !== null) {
-                dispatch({ type: 'TOUCH_MOVE', x: gameCoordX, identifier: touch.identifier });
+                queueTouchMove(gameCoordX, touch.identifier);
             }
         }
-    }, [status, getGameCoordXForTouch, dispatch]);
+    }, [status, getGameCoordXForTouch, queueTouchMove]);
     
     const handleTouchEnd = useCallback((e: React.TouchEvent<HTMLDivElement>) => {
         const gameActive = status === GameStatus.Playing || status === GameStatus.BossBattle || status === GameStatus.AsteroidField || status === GameStatus.TrainingSim;
@@ -98,9 +139,10 @@ export const useInputHandler = (
         for (let i = 0; i < e.changedTouches.length; i++) {
             const touch = e.changedTouches.item(i);
             if (!touch) continue;
+            clearQueuedTouchMoveFor(touch.identifier);
             dispatch({ type: 'TOUCH_END', identifier: touch.identifier });
         }
-    }, [status, dispatch]);
+    }, [status, dispatch, clearQueuedTouchMoveFor]);
 
     const handleTouchCancel = useCallback((e: React.TouchEvent<HTMLDivElement>) => {
         const gameActive = status === GameStatus.Playing || status === GameStatus.BossBattle || status === GameStatus.AsteroidField || status === GameStatus.TrainingSim;
@@ -110,9 +152,10 @@ export const useInputHandler = (
         for (let i = 0; i < e.changedTouches.length; i++) {
             const touch = e.changedTouches.item(i);
             if (!touch) continue;
+            clearQueuedTouchMoveFor(touch.identifier);
             dispatch({ type: 'TOUCH_END', identifier: touch.identifier });
         }
-    }, [status, dispatch]);
+    }, [status, dispatch, clearQueuedTouchMoveFor]);
     
     return {
         pressedKeys,

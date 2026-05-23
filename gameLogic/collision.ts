@@ -92,6 +92,7 @@ const reusableDestroyedConduitLinkedIds = new Set<number>();
 const reusableCollectedPowerUpIds = new Set<number>();
 const reusableCollectedUpgradePartIds = new Set<number>();
 const reusableClonedTrainingTargetIndices = new Set<number>();
+const reusableNearbyTargetsForCrit: Collidable[] = [];
 
 interface PendingEffect {
     x: number;
@@ -137,6 +138,17 @@ function appendArray<T>(base: T[], additions: T[]): T[] {
     return result;
 }
 
+function appendInPlace<T>(base: T[], additions: T[]): T[] {
+    const additionsLen = additions.length;
+    if (additionsLen === 0) return base;
+
+    const start = base.length;
+    for (let i = 0; i < additionsLen; i++) {
+        base[start + i] = additions[i];
+    }
+    return base;
+}
+
 
 /**
  * Processes a batch of pending collision visual effects (damage numbers, crits).
@@ -174,26 +186,26 @@ function processBatchedCollisionEffects(
 
 
 /**
- * A pure array filter function that also releases removed items back to a pool.
+ * Compacts an array in place and releases removed items back to the pool.
  * @param array The array to filter.
  * @param predicate A function that returns true for elements to keep.
  * @param pool The object pool to release removed items to.
  * @param onRelease An optional callback to run on each released item before it's returned to the pool.
- * @returns A new array containing only the elements for which the predicate returned true.
+ * @returns The same array reference, compacted in place.
  */
-function filterAndPool<T>(
+function filterAndPoolInPlace<T>(
     array: T[],
     predicate: (item: T) => boolean,
     pool: ObjectPool<T>,
     onRelease?: (item: T) => void
 ): T[] {
-    const len = array.length;
-    const kept = new Array<T>(len);
     let keptCount = 0;
+    const len = array.length;
+
     for (let i = 0; i < len; i++) {
         const item = array[i];
         if (predicate(item)) {
-            kept[keptCount] = item;
+            array[keptCount] = item;
             keptCount++;
         } else {
             if (onRelease) {
@@ -202,26 +214,24 @@ function filterAndPool<T>(
             pool.release(item);
         }
     }
-    kept.length = keptCount;
-    return kept;
+    array.length = keptCount;
+    return array;
 }
 
-function filterAndPoolAndAppend<T>(
+function filterAndPoolAndAppendInPlace<T>(
     array: T[],
     predicate: (item: T) => boolean,
     pool: ObjectPool<T>,
     additions: T[],
     onRelease?: (item: T) => void
 ): T[] {
-    const len = array.length;
-    const additionsLen = additions.length;
-    const result = new Array<T>(len + additionsLen);
     let resultCount = 0;
+    const len = array.length;
 
     for (let i = 0; i < len; i++) {
         const item = array[i];
         if (predicate(item)) {
-            result[resultCount] = item;
+            array[resultCount] = item;
             resultCount++;
         } else {
             if (onRelease) {
@@ -231,13 +241,14 @@ function filterAndPoolAndAppend<T>(
         }
     }
 
+    const additionsLen = additions.length;
     for (let i = 0; i < additionsLen; i++) {
-        result[resultCount] = additions[i];
+        array[resultCount] = additions[i];
         resultCount++;
     }
 
-    result.length = resultCount;
-    return result;
+    array.length = resultCount;
+    return array;
 }
 
 
@@ -266,9 +277,9 @@ function filterDestroyedEntities(
     const isOffScreen = (y: number) => y > C.GAME_GRID_HEIGHT + C.GAME_HEIGHT_BUFFER;
     const isOffScreenTop = (y: number) => y < -C.OFFSCREEN_BUFFER;
 
-    const projectiles = filterAndPool(state.projectiles, p => !destroyedProjectileIds.has(p.id) && !isOffScreenTop(p.y), pools.projectiles);
-    const asteroids = filterAndPool(state.asteroids, a => !destroyedAsteroidIds.has(a.id) && !isOffScreen(a.y), pools.asteroids);
-    const enemies = filterAndPool(state.enemies, e => !destroyedEnemyIds.has(e.id) && !isOffScreen(e.y), pools.enemies, (e) => {
+    const projectiles = filterAndPoolInPlace(state.projectiles, p => !destroyedProjectileIds.has(p.id) && !isOffScreenTop(p.y), pools.projectiles);
+    const asteroids = filterAndPoolInPlace(state.asteroids, a => !destroyedAsteroidIds.has(a.id) && !isOffScreen(a.y), pools.asteroids);
+    const enemies = filterAndPoolInPlace(state.enemies, e => !destroyedEnemyIds.has(e.id) && !isOffScreen(e.y), pools.enemies, (e) => {
         if (e.trailPoints) {
             e.trailPoints.length = 0;
         }
@@ -276,13 +287,13 @@ function filterDestroyedEntities(
             dodgerNextScanAt.delete(e);
         }
     });
-    const enemyProjectiles = filterAndPool(state.enemyProjectiles, p => !destroyedEnemyProjectileIds.has(p.id) && !isOffScreen(p.y) && !isOffScreenTop(p.y), pools.enemyProjectiles);
-    const powerUps = filterAndPool(state.powerUps, p => !collectedPowerUpIds.has(p.id) && !isOffScreen(p.y), pools.powerUps);
-    const upgradePartCollects = filterAndPool(state.upgradePartCollects, p => !collectedUpgradePartIds.has(p.id), pools.upgradeParts);
+    const enemyProjectiles = filterAndPoolInPlace(state.enemyProjectiles, p => !destroyedEnemyProjectileIds.has(p.id) && !isOffScreen(p.y) && !isOffScreenTop(p.y), pools.enemyProjectiles);
+    const powerUps = filterAndPoolInPlace(state.powerUps, p => !collectedPowerUpIds.has(p.id) && !isOffScreen(p.y), pools.powerUps);
+    const upgradePartCollects = filterAndPoolInPlace(state.upgradePartCollects, p => !collectedUpgradePartIds.has(p.id), pools.upgradeParts);
     
     let newBoss = boss;
     if (newBoss?.fragments) {
-        newBoss.fragments = filterAndPool(newBoss.fragments, f => !destroyedEnemyIds.has(f.id) && !isOffScreen(f.y), pools.enemies);
+        newBoss.fragments = filterAndPoolInPlace(newBoss.fragments, f => !destroyedEnemyIds.has(f.id) && !isOffScreen(f.y), pools.enemies);
     }
     
     return { projectiles, enemies, asteroids, enemyProjectiles, powerUps, upgradePartCollects, boss: newBoss };
@@ -724,11 +735,55 @@ function handlePlayerProjectileCollisions(
         );
     }
 
+    // Broadphase guard: skip expensive spatial queries when projectiles are far from
+    // any potential hostile Y band. This is especially helpful in late-game cleanup.
+    let minHostileY = Infinity;
+    let maxHostileY = -Infinity;
+
+    const enemiesLenForBroadphase = state.enemies.length;
+    for (let i = 0; i < enemiesLenForBroadphase; i++) {
+        const enemy = state.enemies[i];
+        if (destroyedEnemyIds.has(enemy.id)) continue;
+        const enemyMinY = enemy.y - C.ENEMY_HEIGHT;
+        const enemyMaxY = enemy.y + C.ENEMY_HEIGHT;
+        if (enemyMinY < minHostileY) minHostileY = enemyMinY;
+        if (enemyMaxY > maxHostileY) maxHostileY = enemyMaxY;
+    }
+
+    const asteroidsLenForBroadphase = state.asteroids.length;
+    for (let i = 0; i < asteroidsLenForBroadphase; i++) {
+        const asteroid = state.asteroids[i];
+        if (destroyedAsteroidIds.has(asteroid.id)) continue;
+        const asteroidMinY = asteroid.y - asteroid.size;
+        const asteroidMaxY = asteroid.y + asteroid.size;
+        if (asteroidMinY < minHostileY) minHostileY = asteroidMinY;
+        if (asteroidMaxY > maxHostileY) maxHostileY = asteroidMaxY;
+    }
+
+    if (boss && boss.phase !== 'defeated') {
+        const bossHeight = boss.bossType === 'punisher'
+            ? C.PUNISHER_HEIGHT
+            : boss.bossType === 'warden'
+                ? C.WARDEN_HEIGHT
+                : C.OVERMIND_HEIGHT;
+        const bossMinY = boss.y - bossHeight * 0.5;
+        const bossMaxY = boss.y + bossHeight * 1.5;
+        if (bossMinY < minHostileY) minHostileY = bossMinY;
+        if (bossMaxY > maxHostileY) maxHostileY = bossMaxY;
+    }
+
+    const hasHostileYRange = minHostileY <= maxHostileY;
+    const PROJECTILE_HOSTILE_Y_PADDING = 220;
+    const minProjectileCollisionY = minHostileY - PROJECTILE_HOSTILE_Y_PADDING;
+    const maxProjectileCollisionY = maxHostileY + PROJECTILE_HOSTILE_Y_PADDING;
+
     // ✅ CRITICAL PERFORMANCE: Manual loop instead of for...of to avoid iterator allocation
     const projectilesLen2 = state.projectiles.length;
     for (let i = 0; i < projectilesLen2; i++) {
         const proj = state.projectiles[i];
         if (destroyedProjectileIds.has(proj.id)) continue;
+        if (!hasHostileYRange) continue;
+        if (proj.y < minProjectileCollisionY || proj.y > maxProjectileCollisionY) continue;
         
         // ✅ OPTIMIZATION: Mutate existing object instead of creating a new one
         const projCollidable = proj as unknown as Collidable;
@@ -1023,7 +1078,7 @@ function handlePlayerProjectileCollisions(
                             aoeQueryObject.x = enemy.x;
                             aoeQueryObject.y = enemy.y;
                             aoeQueryObject.radius = critRadius;
-                            const nearbyTargetsForCrit = grid.getNearby(aoeQueryObject);
+                            const nearbyTargetsForCrit = grid.getNearbyInto(aoeQueryObject, reusableNearbyTargetsForCrit);
                             const critRadiusSquared = critRadius ** 2;
 
                             const MAX_AOE_TARGETS = 12; // soft cap to protect frame time
@@ -1498,14 +1553,14 @@ export function resolveCollisions(state: GameState, now: number, effectiveNow: n
 
     if (clearAllBeamsOnRevive) {
         pools.weaverBeams.releaseAll(finalWeaverBeams);
-        finalWeaverBeams = [];
+        finalWeaverBeams.length = 0;
         pools.weaverSurges.releaseAll(finalWeaverSurges);
-        finalWeaverSurges = [];
-        finalBossLasers = [];
+        finalWeaverSurges.length = 0;
+        finalBossLasers.length = 0;
     } else {
         // Filter by time/position to fix memory leaks
-        finalWeaverBeams = filterAndPool(state.weaverBeams, b => effectiveNow - b.createdAt < C.WEAVER_BEAM_DURATION, pools.weaverBeams);
-        finalWeaverSurges = filterAndPool(state.weaverSurges, s => s.y < C.GAME_GRID_HEIGHT + C.GAME_HEIGHT_BUFFER, pools.weaverSurges);
+        finalWeaverBeams = filterAndPoolInPlace(state.weaverBeams, b => effectiveNow - b.createdAt < C.WEAVER_BEAM_DURATION, pools.weaverBeams);
+        finalWeaverSurges = filterAndPoolInPlace(state.weaverSurges, s => s.y < C.GAME_GRID_HEIGHT + C.GAME_HEIGHT_BUFFER, pools.weaverSurges);
     }
     
     if (damageResults.shieldBreakingUntil > 0) {
@@ -1540,69 +1595,69 @@ export function resolveCollisions(state: GameState, now: number, effectiveNow: n
         playerDebuffs: damageResults.playerDebuffs,
         lastEmpFireTime: abilityResults.lastEmpFireTime,
         reloadBoosts: state.reloadBoosts + collectionResults.newReloadBoosts,
-        powerUps: appendArray(filtered.powerUps, newPowerUps),
-        enemyProjectiles: appendArray(filtered.enemyProjectiles, newDuplicatedProjectiles),
+        powerUps: appendInPlace(filtered.powerUps, newPowerUps),
+        enemyProjectiles: appendInPlace(filtered.enemyProjectiles, newDuplicatedProjectiles),
         
         // Return final filtered effect arrays
         bossLasers: finalBossLasers,
         weaverBeams: finalWeaverBeams,
         weaverSurges: finalWeaverSurges,
-        explosions: filterAndPoolAndAppend(
+        explosions: filterAndPoolAndAppendInPlace(
             state.explosions,
             e => effectiveNow - e.createdAt < 500,
             pools.explosions,
             newExplosions,
             onExplosionRelease
         ),
-        damageNumbers: filterAndPoolAndAppend(
+        damageNumbers: filterAndPoolAndAppendInPlace(
             state.damageNumbers,
             d => effectiveNow - d.createdAt < C.DAMAGE_NUMBER_LIFETIME,
             pools.damageNumbers,
             newDamageNumbers
         ),
-        rockImpacts: filterAndPoolAndAppend(
+        rockImpacts: filterAndPoolAndAppendInPlace(
             state.rockImpacts,
             i => effectiveNow - i.createdAt < 300,
             pools.rockImpacts,
             newRockImpacts
         ),
-        projectileImpacts: filterAndPoolAndAppend(
+        projectileImpacts: filterAndPoolAndAppendInPlace(
             state.projectileImpacts,
             i => effectiveNow - i.createdAt < 300,
             pools.projectileImpacts,
             newProjectileImpacts
         ),
-        criticalHits: filterAndPoolAndAppend(
+        criticalHits: filterAndPoolAndAppendInPlace(
             state.criticalHits,
             c => effectiveNow - c.createdAt < C.CRITICAL_HIT_DURATION,
             pools.criticalHits,
             newCriticalHits
         ),
-        gibs: filterAndPoolAndAppend(
+        gibs: filterAndPoolAndAppendInPlace(
             state.gibs,
             g => effectiveNow - g.createdAt < C.GIB_LIFETIME,
             pools.gibs,
             newGibs
         ),
-        shellCasings: filterAndPoolAndAppend(
+        shellCasings: filterAndPoolAndAppendInPlace(
             state.shellCasings,
             s => effectiveNow - s.createdAt < C.SHELL_LIFETIME,
             pools.shellCasings,
             newShellCasings
         ),
-        empArcs: filterAndPoolAndAppend(
+        empArcs: filterAndPoolAndAppendInPlace(
             state.empArcs,
             a => effectiveNow - a.createdAt < C.EMP_ARC_DURATION,
             pools.empArcs,
             newEmpArcs
         ),
-        powerUpInfusions: filterAndPoolAndAppend(
+        powerUpInfusions: filterAndPoolAndAppendInPlace(
             state.powerUpInfusions,
             i => effectiveNow - i.createdAt < C.POWERUP_INFUSION_DURATION,
             pools.powerUpInfusions,
             collectionResults.newPowerUpInfusions
         ),
         inGameMessages: appendArray(state.inGameMessages, collectionResults.newInGameMessages),
-        upgradePartCollects: appendArray(filtered.upgradePartCollects, newUpgradePartCollects),
+        upgradePartCollects: appendInPlace(filtered.upgradePartCollects, newUpgradePartCollects),
     }; 
 }

@@ -1,6 +1,6 @@
 import type { GameState, GameAction } from '../types';
 import { GameStatus } from '../types';
-import { runGameTick } from '../gameLogic/engine';
+import { runGameTick, type GameTickStep } from '../gameLogic/engine';
 import {
     transitionToGameOver,
     transitionToLevelUp,
@@ -10,13 +10,21 @@ import {
     transitionToMontezumaComplete
 } from '../utils/stateTransitions';
 
+const SIMULATION_STATES = new Set<GameStatus>([
+    GameStatus.Playing,
+    GameStatus.BossBattle,
+    GameStatus.PlayerDying,
+    GameStatus.AsteroidField,
+    GameStatus.TrainingSim,
+]);
+
 // ============================================================================
 // REDUCER HELPER FUNCTIONS (HANDLERS)
 // ============================================================================
 
 // --- GAME TICK HANDLER ---
 
-function handleGameTick(state: GameState, action: Extract<GameAction, { type: 'GAME_TICK' }>): GameState {
+function handleGameTick(state: GameState, action: GameTickStep): GameState {
     const nextState = runGameTick(state, action);
 
     if (nextState.pendingTransition) {
@@ -54,6 +62,31 @@ function handleGameTick(state: GameState, action: Extract<GameAction, { type: 'G
     return nextState;
 }
 
+function handleGameTickBatch(state: GameState, action: Extract<GameAction, { type: 'GAME_TICK_BATCH' }>): GameState {
+    const steps = Math.max(1, Math.floor(action.steps));
+    const stepDurationMs = action.delta * 1000;
+    // Reconstruct monotonic step timestamps so transition timing remains stable.
+    let stepTimestamp = action.timestamp - ((steps - 1) * stepDurationMs);
+    let nextState = state;
+
+    for (let i = 0; i < steps; i++) {
+        nextState = handleGameTick(nextState, {
+            delta: action.delta,
+            timestamp: stepTimestamp,
+            pressedKeys: action.pressedKeys,
+            containerSize: action.containerSize,
+        });
+        stepTimestamp += stepDurationMs;
+
+        // Stop early if simulation is no longer active (pause/menu/game-over transitions).
+        if (!SIMULATION_STATES.has(nextState.status)) {
+            break;
+        }
+    }
+
+    return nextState;
+}
+
 
 // ============================================================================
 // ENGINE REDUCER
@@ -61,8 +94,8 @@ function handleGameTick(state: GameState, action: Extract<GameAction, { type: 'G
 
 export function gameReducer(state: GameState, action: GameAction): GameState {
     switch (action.type) {
-        case 'GAME_TICK':
-            return handleGameTick(state, action);
+        case 'GAME_TICK_BATCH':
+            return handleGameTickBatch(state, action);
         
         default:
             return state;
