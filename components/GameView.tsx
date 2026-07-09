@@ -339,6 +339,7 @@ export const GameView: React.FC<GameViewProps> = ({ gameState, dispatch }) => {
                 partsEarnedThisRun={gameState.partsEarnedThisRun}
                 isMontezumaActive={gameState.isMontezumaActive}
                 asteroids={gameState.asteroids}
+                hapticsEnabled={gameState.hapticsEnabled}
                 dispatch={dispatch}
                 effectiveNowForOverlay={effectiveNowForOverlay}
                 lastPauseToggle={lastPauseToggle}

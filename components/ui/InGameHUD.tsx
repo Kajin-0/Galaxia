@@ -1,11 +1,23 @@
-
 import React, { useMemo } from 'react';
-import type { GameState, GameAction } from '../../types';
+import {
+    Coins,
+    Eye,
+    Flame,
+    FlaskConical,
+    HeartPulse,
+    Pause,
+    RotateCcw,
+    Wrench,
+    X,
+} from 'lucide-react';
+import type { GameState, GameAction, InGameMessage } from '../../types';
 import { GameStatus } from '../../types';
 import * as C from '../../constants';
-import { SurvivalTimerBar } from './SurvivalTimerBar';
-import { InGameMessageOverlay } from './InGameMessageOverlay';
 import { getStreakBonus } from '../../utils/progression';
+import { triggerHaptic } from '../../utils/haptics';
+import { InGameMessageOverlay } from './InGameMessageOverlay';
+import { Badge, CurrencyChip, GlassPanel, StatBar, cx } from './primitives';
+import { SurvivalTimerBar } from './SurvivalTimerBar';
 
 interface InGameHUDProps {
     status: GameStatus;
@@ -38,14 +50,48 @@ interface InGameHUDProps {
     partsEarnedThisRun: number;
     isMontezumaActive: boolean;
     asteroids: GameState['asteroids'];
+    hapticsEnabled: boolean;
     dispatch: React.Dispatch<GameAction>;
     effectiveNowForOverlay: number;
     lastPauseToggle: React.RefObject<number>;
 }
 
-const TrainingCountdown: React.FC<{ startTime: number, now: number }> = ({ startTime, now }) => {
+type BossSnapshot = Pick<NonNullable<GameState['boss']>, 'bossType' | 'health' | 'maxHealth' | 'phase'>;
+type RareConsumableSnapshot = NonNullable<GameState['activeRareConsumable']>;
+
+interface TrainingSnapshot {
+    startTime: number;
+    endTime: number;
+}
+
+interface MontezumaSnapshot {
+    health: number;
+    maxHealth: number;
+}
+
+interface InGameHUDRenderProps {
+    source: InGameHUDProps;
+    bossSnapshot: BossSnapshot | null;
+    rareConsumableSnapshot: RareConsumableSnapshot | null;
+    trainingSnapshot: TrainingSnapshot | null;
+    montezumaSnapshot: MontezumaSnapshot | null;
+    messageSnapshots: InGameMessage[];
+    generalReloadSpeedLevel: number;
+    hasPendingPostFightOutcome: boolean;
+    hasPendingEncounter: boolean;
+}
+
+type ReloadAnimationStyle = React.CSSProperties & {
+    '--reload-duration'?: string;
+    '--reload-degrees'?: string;
+};
+
+const HUD_FRAME_INTERVAL_MS = 1000 / 30;
+const MAGAZINE_SLOT_COUNT = 12;
+
+const TrainingCountdown: React.FC<{ startTime: number; now: number }> = ({ startTime, now }) => {
     const remainingMs = startTime - now;
-    if (remainingMs <= -500) return null; // Disappears 500ms after "GO!"
+    if (remainingMs <= -500) return null;
 
     let text = '';
     let key = '';
@@ -65,348 +111,529 @@ const TrainingCountdown: React.FC<{ startTime: number, now: number }> = ({ start
     }
 
     return (
-        <div key={key} className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 z-50 animate-level-up pointer-events-none">
-            <h2 className="text-9xl font-black text-yellow-400 uppercase" style={{ textShadow: '0 0 10px #ff0, 0 0 20px #f90, 0 0 30px #f00' }}>
+        <div
+            key={key}
+            className="pointer-events-none absolute left-1/2 top-1/2 z-50 -translate-x-1/2 -translate-y-1/2 animate-level-up"
+        >
+            <h2 className="text-7xl font-black uppercase text-yellow-300 [text-shadow:0_0_10px_#ff0,0_0_24px_#f90] sm:text-8xl">
                 {text}
             </h2>
         </div>
     );
 };
 
-const InGameHUDComponent: React.FC<InGameHUDProps> = ({ 
-    status, pauseStartTime, lastTick, totalPauseDuration, reloadCompleteTime, 
-    generalUpgrades, reloadBoosts, controlLayout, trainingSimState, asteroidFieldEndTime, 
-    boss, score, highScore, hasRevive, activeRareConsumable, hasHereticalInsight, level, pendingPostFightOutcome, 
-    enemiesDefeatedInLevel, isHardMode, inGameMessages, levelUpAnnounceTime, 
-    pendingEncounter, ammo, maxAmmo, levelStreakThisRun, currencyEarnedThisRun, 
-    partsEarnedThisRun, isMontezumaActive, asteroids, dispatch, effectiveNowForOverlay, lastPauseToggle 
+const InGameHUDComponent: React.FC<InGameHUDRenderProps> = ({
+    source,
+    bossSnapshot,
+    rareConsumableSnapshot,
+    trainingSnapshot,
+    montezumaSnapshot,
+    messageSnapshots,
+    generalReloadSpeedLevel,
+    hasPendingPostFightOutcome,
+    hasPendingEncounter,
 }) => {
-    
-    const gameActive = status === GameStatus.Playing || status === GameStatus.BossBattle || status === GameStatus.AsteroidField || status === GameStatus.TrainingSim;
-    const isBossFight = status === GameStatus.BossBattle && boss;
-    const showLevelBar = (status === GameStatus.Playing && !pendingPostFightOutcome && !isMontezumaActive);
+    const {
+        status,
+        pauseStartTime,
+        lastTick,
+        totalPauseDuration,
+        reloadCompleteTime,
+        reloadBoosts,
+        controlLayout,
+        asteroidFieldEndTime,
+        score,
+        highScore,
+        hasRevive,
+        hasHereticalInsight,
+        level,
+        enemiesDefeatedInLevel,
+        isHardMode,
+        levelUpAnnounceTime,
+        ammo,
+        maxAmmo,
+        levelStreakThisRun,
+        currencyEarnedThisRun,
+        partsEarnedThisRun,
+        isMontezumaActive,
+        hapticsEnabled,
+        dispatch,
+        effectiveNowForOverlay,
+        lastPauseToggle,
+    } = source;
 
-    // Logic for the continuous reload button animation
-    const { reloadAnimationStyle, reloadAnimationKey, isReloading } = useMemo(() => {
-        const isGamePaused = status === GameStatus.Paused;
-        
-        // If the game is paused, we need to use a "frozen" timestamp to check the reload status.
-        // We use the time the pause began. Otherwise, we use the latest game tick.
-        const tickToUse = isGamePaused ? (pauseStartTime || lastTick) : lastTick;
-
-        // Calculate the effective timestamp, which is pause-aware.
-        // When paused, this correctly uses the time *at the moment of pausing*.
-        // When running, this uses the current time, adjusted for total pause duration.
-        const effectiveLastTick = tickToUse > 0 ? tickToUse - totalPauseDuration : 0;
-        
-        // The reload completion time is also in the pause-aware "effective" time domain.
-        const isReloading = reloadCompleteTime > effectiveLastTick && lastTick > 0;
-        
-        if (isReloading) {
-            let reloadBonus = 0;
-            if (C.HANGAR_GENERAL_UPGRADE_CONFIG?.reload_speed_level && generalUpgrades.reload_speed_level > 0) {
-                reloadBonus = C.HANGAR_GENERAL_UPGRADE_CONFIG.reload_speed_level[generalUpgrades.reload_speed_level - 1].effect;
-            }
-            const totalReloadReduction = Math.min((reloadBoosts * C.RELOAD_TIME_REDUCTION_PER_STACK) + reloadBonus, 0.9);
-            const currentReloadTime = C.RELOAD_TIME * (1 - totalReloadReduction);
-            
-            // The number of rotations decreases as reload speed increases, but the rate of rotation is constant.
-            // Base time (1.5s) = 4 spins (1440deg).
-            const totalDegreesToRotate = 1440 * (1 - totalReloadReduction);
-
-            const reloadAnimationStyle: React.CSSProperties = {
-                // @ts-ignore
-                '--reload-duration': `${currentReloadTime / 1000}s`,
-                '--reload-degrees': `${totalDegreesToRotate}deg`,
-            };
-            const reloadAnimationKey = reloadCompleteTime;
-            
-            return { reloadAnimationStyle, reloadAnimationKey, isReloading };
-        }
-
-        return { reloadAnimationStyle: {}, reloadAnimationKey: 0, isReloading: false };
-
-    }, [status, pauseStartTime, reloadCompleteTime, lastTick, totalPauseDuration, generalUpgrades, reloadBoosts]);
-    
-    const montezuma = useMemo(() => {
-        if (!isMontezumaActive) return null;
-        return asteroids.find(a => a.id === -999) ?? null;
-    }, [isMontezumaActive, asteroids]);
-
+    const gameActive = status === GameStatus.Playing
+        || status === GameStatus.BossBattle
+        || status === GameStatus.AsteroidField
+        || status === GameStatus.TrainingSim;
+    const isBossFight = status === GameStatus.BossBattle && bossSnapshot !== null;
+    const showLevelBar = status === GameStatus.Playing && !hasPendingPostFightOutcome && !isMontezumaActive;
     const showTopBar = showLevelBar || isBossFight;
 
+    const { reloadAnimationStyle, reloadAnimationKey, isReloading } = useMemo(() => {
+        const tickToUse = status === GameStatus.Paused ? (pauseStartTime || lastTick) : lastTick;
+        const effectiveLastTick = tickToUse > 0 ? tickToUse - totalPauseDuration : 0;
+        const reloading = reloadCompleteTime > effectiveLastTick && lastTick > 0;
+
+        if (!reloading) {
+            return {
+                reloadAnimationStyle: {} as ReloadAnimationStyle,
+                reloadAnimationKey: 0,
+                isReloading: false,
+            };
+        }
+
+        let reloadBonus = 0;
+        const reloadSpeedConfig = C.HANGAR_GENERAL_UPGRADE_CONFIG?.reload_speed_level;
+        if (reloadSpeedConfig && generalReloadSpeedLevel > 0) {
+            reloadBonus = reloadSpeedConfig[generalReloadSpeedLevel - 1]?.effect ?? 0;
+        }
+        const totalReloadReduction = Math.min(
+            (reloadBoosts * C.RELOAD_TIME_REDUCTION_PER_STACK) + reloadBonus,
+            0.9,
+        );
+        const currentReloadTime = C.RELOAD_TIME * (1 - totalReloadReduction);
+        const totalDegreesToRotate = 1440 * (1 - totalReloadReduction);
+
+        return {
+            reloadAnimationStyle: {
+                '--reload-duration': `${currentReloadTime / 1000}s`,
+                '--reload-degrees': `${totalDegreesToRotate}deg`,
+            } as ReloadAnimationStyle,
+            reloadAnimationKey: reloadCompleteTime,
+            isReloading: true,
+        };
+    }, [
+        generalReloadSpeedLevel,
+        lastTick,
+        pauseStartTime,
+        reloadBoosts,
+        reloadCompleteTime,
+        status,
+        totalPauseDuration,
+    ]);
+
+    const bossProgress = bossSnapshot
+        ? {
+            label: bossSnapshot.bossType.toUpperCase().replace('_', ' '),
+            value: bossSnapshot.health,
+            max: bossSnapshot.maxHealth,
+            valueLabel: `${Math.max(0, Math.ceil(bossSnapshot.health)).toLocaleString()} / ${Math.ceil(bossSnapshot.maxHealth).toLocaleString()}`,
+        }
+        : null;
+    const filledMagazineSlots = maxAmmo > 0
+        ? Math.min(MAGAZINE_SLOT_COUNT, Math.ceil((Math.max(0, ammo) / maxAmmo) * MAGAZINE_SLOT_COUNT))
+        : 0;
+    const visibleMagazineSlots = Math.min(MAGAZINE_SLOT_COUNT, Math.max(0, maxAmmo));
+    const showRunEarnings = (levelStreakThisRun > 0 && status !== GameStatus.TrainingSim)
+        || currencyEarnedThisRun > 0
+        || partsEarnedThisRun > 0;
+    const sideInset = 'max(0.75rem, env(safe-area-inset-left, 0px))';
+    const oppositeSideInset = 'max(0.75rem, env(safe-area-inset-right, 0px))';
+    const reloadSideStyle: React.CSSProperties = controlLayout === 'right'
+        ? { left: sideInset }
+        : { right: oppositeSideInset };
+
+    const togglePause = (event: React.TouchEvent<HTMLButtonElement> | React.MouseEvent<HTMLButtonElement>) => {
+        event.preventDefault();
+        event.stopPropagation();
+        const now = performance.now();
+        if (now - lastPauseToggle.current < 300) return;
+        lastPauseToggle.current = now;
+        triggerHaptic('uiTap', hapticsEnabled);
+        dispatch({ type: 'TOGGLE_PAUSE', timestamp: now });
+    };
+
     return (
-        <div className="absolute top-0 left-0 right-0 bottom-0 pointer-events-none z-20">
-            
-            {/* Main Top Bar (Left & Right aligned elements) */}
-            <div 
-              className="absolute top-0 left-0 right-0 z-30 p-2 sm:p-4 flex justify-between items-start"
-              style={{ paddingTop: `calc(0.5rem + env(safe-area-inset-top, 0px))` }}
+        <div className="pointer-events-none absolute inset-0 z-20 text-white">
+            <div
+                className="absolute inset-x-0 top-0 z-30 px-2 sm:px-4"
+                style={{
+                    paddingTop: 'calc(0.5rem + env(safe-area-inset-top, 0px))',
+                    paddingLeft: 'max(0.5rem, env(safe-area-inset-left, 0px))',
+                    paddingRight: 'max(0.5rem, env(safe-area-inset-right, 0px))',
+                }}
             >
-              {/* LEFT SECTION: Score */}
-              <div className="flex flex-col items-start">
-                <div className="text-base font-bold text-cyan-300" style={{ textShadow: '0 0 5px #0ff' }}>
-                    SCORE: {score.toLocaleString()}
-                </div>
-                <div className="text-sm font-bold text-slate-400">
-                    HI: {highScore.toLocaleString()}
-                </div>
-              </div>
+                <div className="grid grid-cols-[minmax(0,1fr)_minmax(150px,240px)_minmax(0,1fr)] items-start gap-2">
+                    <GlassPanel tone="cyan" className="w-fit min-w-[88px] px-2.5 py-1.5">
+                        <span className="block text-[9px] font-black uppercase tracking-widest text-cyan-400">Score</span>
+                        <span className="block font-mono text-base font-black tabular-nums text-cyan-100 [text-shadow:0_0_8px_rgba(34,211,238,0.65)]">
+                            {score.toLocaleString()}
+                        </span>
+                        <span className="block font-mono text-[9px] tabular-nums text-slate-400">
+                            HI {highScore.toLocaleString()}
+                        </span>
+                    </GlassPanel>
 
-              {/* RIGHT SECTION: Pause & Hard Mode */}
-              <div className="flex flex-col items-end gap-2">
-                {(gameActive || status === GameStatus.Paused) && (
-                    <button
-                        onTouchStart={(e) => {
-                            e.preventDefault();
-                            e.stopPropagation();
-                            const now = performance.now();
-                            if (now - lastPauseToggle.current < 300) return;
-                            lastPauseToggle.current = now;
-                            dispatch({ type: 'TOGGLE_PAUSE', timestamp: now });
-                        }}
-                        onClick={(e) => {
-                            e.preventDefault();
-                            const now = performance.now();
-                            if (now - lastPauseToggle.current < 300) return;
-                            lastPauseToggle.current = now;
-                            dispatch({ type: 'TOGGLE_PAUSE', timestamp: now });
-                        }}
-                        className="p-2 bg-slate-700/50 text-white rounded-full hover:bg-slate-600 pointer-events-auto"
-                        aria-label="Pause"
-                    >
-                        {status === GameStatus.Paused ? (
-                            <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" /></svg>
-                        ) : (
-                            <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" viewBox="0 0 24 24" fill="currentColor">
-                              <path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z"/>
-                            </svg>
-                        )}
-                    </button>
-                )}
-                {isHardMode && (
-                     <div className="text-base font-black text-pink-500 uppercase" style={{ textShadow: '0 0 5px #f0f' }}>
-                        Hard Mode
-                    </div>
-                )}
-              </div>
-            </div>
-            
-            {/* CENTERED TOP BAR: LEVEL or BOSS HEALTH */}
-            {showTopBar && (() => {
-                const label = isBossFight ? boss.bossType.toUpperCase().replace('_', ' ') : `LEVEL ${level}`;
-                const progressPercent = isBossFight
-                    ? (boss.health / boss.maxHealth) * 100
-                    : (enemiesDefeatedInLevel / C.ENEMIES_PER_LEVEL) * 100;
-                
-                const barColorClass = isBossFight ? 'bg-pink-500' : 'bg-cyan-400';
-                const borderColorClass = isBossFight ? 'border-pink-500/50' : 'border-cyan-500/50';
-                const textColorClass = isBossFight ? 'text-pink-300' : 'text-cyan-300';
-                const textShadow = isBossFight ? '0 0 5px #f0f' : '0 0 5px #0ff';
-
-                return (
-                    <div 
-                        className="absolute left-1/2 -translate-x-1/2 w-full max-w-[160px] text-center text-white"
-                        style={{ top: `calc(0.5rem + env(safe-area-inset-top, 0px))` }}
-                    >
-                        <div className={`font-bold text-lg ${textColorClass}`} style={{ textShadow }}>
-                            {label}
-                        </div>
-                        <div className={`h-2 bg-slate-700 rounded-full overflow-hidden mt-1 border ${borderColorClass}`}>
-                            <div 
-                                className={`h-full ${barColorClass} transition-all duration-300`}
-                                style={{ width: `${progressPercent}%` }}
+                    <div className="min-w-0 pt-0.5">
+                        {showTopBar && (
+                            <StatBar
+                                value={bossProgress?.value ?? enemiesDefeatedInLevel}
+                                max={bossProgress?.max ?? C.ENEMIES_PER_LEVEL}
+                                label={bossProgress?.label ?? `LEVEL ${level}`}
+                                valueLabel={bossProgress?.valueLabel ?? `${enemiesDefeatedInLevel} / ${C.ENEMIES_PER_LEVEL}`}
+                                tone={isBossFight ? 'magenta' : 'cyan'}
+                                segments={isBossFight ? 8 : Math.min(10, Math.max(1, C.ENEMIES_PER_LEVEL))}
+                                compact
                             />
-                        </div>
+                        )}
                     </div>
-                );
-            })()}
-            
-            {/* STATUS INDICATORS (Absolutely Positioned) */}
-            {gameActive && (hasRevive || activeRareConsumable || hasHereticalInsight) && (
-                <div 
-                    className="absolute left-2 sm:left-4 flex flex-col items-start gap-2"
-                    style={{ top: `calc(4.5rem + env(safe-area-inset-top, 0px))` }}
+
+                    <div className="flex min-w-0 flex-col items-end gap-1.5">
+                        {(gameActive || status === GameStatus.Paused) && (
+                            <button
+                                type="button"
+                                onTouchStart={togglePause}
+                                onClick={togglePause}
+                                className="hud-glass pointer-events-auto inline-flex min-h-11 min-w-11 items-center justify-center rounded-full border-cyan-300/25 text-cyan-100 transition-[transform,opacity] duration-150 active:scale-95"
+                                aria-label={status === GameStatus.Paused ? 'Close pause menu' : 'Pause game'}
+                            >
+                                {status === GameStatus.Paused ? <X size={22} /> : <Pause size={22} fill="currentColor" />}
+                            </button>
+                        )}
+                        {isHardMode && <Badge tone="danger" pulse>Hard mode</Badge>}
+                    </div>
+                </div>
+            </div>
+
+            {gameActive && (hasRevive || rareConsumableSnapshot || hasHereticalInsight) && (
+                <div
+                    className="absolute z-30 flex max-w-[calc(100%-1rem)] flex-wrap items-center gap-1.5"
+                    style={{
+                        top: 'calc(4.75rem + env(safe-area-inset-top, 0px))',
+                        left: sideInset,
+                    }}
+                    aria-label="Active combat effects"
                 >
                     {hasRevive && (
-                        <div className="flex items-center gap-2 text-pink-400 animate-pulse" title="Revive Equipped">
-                            <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" viewBox="0 0 20 20" fill="currentColor" style={{ filter: 'drop-shadow(0 0 5px #f472b6)' }}>
-                                <path fillRule="evenodd" d="M3.172 5.172a4 4 0 015.656 0L10 6.343l1.172-1.171a4 4 0 115.656 5.656L10 17.657l-6.828-6.829a4 4 0 010-5.656z" clipRule="evenodd" />
-                            </svg>
-                            <span className="font-bold text-base">REVIVE</span>
-                        </div>
+                        <Badge tone="magenta" pulse title="Revive equipped">
+                            <HeartPulse size={13} aria-hidden="true" />
+                            Revive
+                        </Badge>
                     )}
-                    {activeRareConsumable?.type === 'corrosive' && (
-                        <div className="flex items-center gap-1 text-lime-400 animate-pulse p-1 bg-lime-900/50 border border-lime-500 rounded-md" title="Corrosive Rounds Active">
-                            <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor" style={{ filter: 'drop-shadow(0 0 5px #a3e635)' }}>
-                                <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clipRule="evenodd" />
-                            </svg>
-                            <span className="font-bold text-sm">CORROSIVE</span>
-                            <span className="font-mono text-sm bg-slate-800 px-1.5 rounded">{activeRareConsumable.shotsLeft}</span>
-                        </div>
+                    {rareConsumableSnapshot?.type === 'corrosive' && (
+                        <Badge tone="lime" pulse title="Corrosive rounds active">
+                            <FlaskConical size={13} aria-hidden="true" />
+                            Corrosive {rareConsumableSnapshot.shotsLeft}
+                        </Badge>
                     )}
                     {hasHereticalInsight && (
-                        <div className="flex items-center gap-2 text-purple-400" title="Heretical Insight: Double damage vs. The Overmind">
-                            <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" viewBox="0 0 20 20" fill="currentColor" style={{ filter: 'drop-shadow(0 0 5px #c084fc)' }}>
-                                <path d="M10 12a2 2 0 100-4 2 2 0 000 4z" />
-                                <path fillRule="evenodd" d="M.458 10C3.732 4.943 9.522 3 10 3s6.268 1.943 9.542 7c-3.274 5.057-9.064 7-9.542 7S3.732 15.057.458 10zM14 10a4 4 0 11-8 0 4 4 0 018 0z" clipRule="evenodd" />
-                                <path d="M9 7L10 10L11 7" stroke="#0f172a" strokeWidth="1.2" fill="none" strokeLinecap="round" strokeLinejoin="round" />
-                            </svg>
-                            <span className="font-bold text-base">INSIGHT</span>
-                        </div>
+                        <Badge tone="violet" title="Double damage against the Overmind">
+                            <Eye size={13} aria-hidden="true" />
+                            Insight
+                        </Badge>
                     )}
                 </div>
             )}
 
-            {/* Ammo Empty Indicator */}
             {gameActive && ammo === 0 && !isReloading && (
                 <div
-                    className={`absolute z-30 w-20 flex flex-col items-center justify-center animate-bounce transition-opacity duration-300 ${
-                        controlLayout === 'right' ? 'left-4' : 'right-4'
-                    }`}
-                    style={{ bottom: `calc(10.5rem + env(safe-area-inset-bottom, 0px))` }}
+                    className="absolute z-30 flex w-16 animate-pulse flex-col items-center text-red-300"
+                    style={{
+                        ...reloadSideStyle,
+                        bottom: 'calc(10.25rem + env(safe-area-inset-bottom, 0px))',
+                    }}
+                    aria-hidden="true"
                 >
-                    <div className="text-red-400 font-bold text-[10px] sm:text-xs tracking-widest uppercase bg-slate-900/90 px-2 py-1 rounded border border-red-500/60 shadow-[0_0_15px_rgba(239,68,68,0.4)] backdrop-blur-sm">
-                        RELOAD
-                    </div>
-                    {/* Professional Arrow (Double Chevron) */}
-                    <svg
-                        xmlns="http://www.w3.org/2000/svg"
-                        className="h-6 w-6 text-red-400 -mt-1 drop-shadow-[0_0_8px_rgba(239,68,68,0.6)]"
-                        viewBox="0 0 24 24"
-                        fill="currentColor"
-                    >
-                        <path d="M12 16L7 11H17L12 16Z" />
-                        <path d="M12 9L7 4H17L12 9Z" opacity="0.5" />
-                    </svg>
+                    <span className="hud-glass rounded border-red-400/45 px-2 py-1 text-[10px] font-black uppercase tracking-widest">
+                        Reload
+                    </span>
+                    <RotateCcw size={18} className="mt-1" />
                 </div>
             )}
 
-            {/* Reload Button for Mobile */}
             {gameActive && (
                 <button
-                    onTouchStart={(e) => {
-                        e.preventDefault(); // Prevent default browser actions
-                        e.stopPropagation(); // Stops the event from reaching the game area
+                    type="button"
+                    onTouchStart={(event) => {
+                        event.preventDefault();
+                        event.stopPropagation();
+                        triggerHaptic('uiTap', hapticsEnabled);
                         dispatch({ type: 'RELOAD_GUN' });
                     }}
-                    onClick={(e) => { // Fallback for mouse users
-                         e.preventDefault();
-                         dispatch({ type: 'RELOAD_GUN' });
+                    onClick={(event) => {
+                        event.preventDefault();
+                        triggerHaptic('uiTap', hapticsEnabled);
+                        dispatch({ type: 'RELOAD_GUN' });
                     }}
-                    className={`absolute z-40 w-20 h-20 bg-slate-700/50 text-white rounded-full border-2 border-slate-400/50 flex items-center justify-center pointer-events-auto transition-transform active:scale-95 active:bg-slate-700/80 ${controlLayout === 'right' ? 'left-4' : 'right-4'}`}
-                    style={{ bottom: `calc(5rem + env(safe-area-inset-bottom, 0px))` }}
-                    aria-label="Reload"
+                    className="hud-glass pointer-events-auto absolute z-40 flex h-16 w-16 items-center justify-center rounded-full border-2 border-cyan-300/35 text-cyan-100 shadow-neon-cyan transition-[transform,opacity] duration-150 active:scale-95"
+                    style={{
+                        ...reloadSideStyle,
+                        bottom: 'calc(5.75rem + env(safe-area-inset-bottom, 0px))',
+                    }}
+                    aria-label={isReloading ? 'Reloading' : 'Reload weapon'}
                 >
-                    <svg 
+                    <RotateCcw
                         key={reloadAnimationKey}
-                        xmlns="http://www.w3.org/2000/svg" 
-                        className={`h-10 w-10 ${isReloading ? 'animate-reloading-spin' : ''}`}
-                        style={isReloading ? reloadAnimationStyle : {}}
-                        fill="none" 
-                        viewBox="0 0 24 24" 
-                        stroke="currentColor"
-                    >
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h5M20 20v-5h-5" />
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 9a9 9 0 0114.13-4.13M20 15a9 9 0 01-14.13 4.13" />
-                    </svg>
+                        size={30}
+                        className={isReloading ? 'animate-reloading-spin' : ''}
+                        style={isReloading ? reloadAnimationStyle : undefined}
+                        aria-hidden="true"
+                    />
                 </button>
             )}
-            
-            {/* Countdown Timer for Training Sim */}
-            {status === GameStatus.TrainingSim && trainingSimState && effectiveNowForOverlay < trainingSimState.startTime && (
-                <TrainingCountdown startTime={trainingSimState.startTime} now={effectiveNowForOverlay} />
+
+            {status === GameStatus.TrainingSim
+                && trainingSnapshot
+                && effectiveNowForOverlay < trainingSnapshot.startTime && (
+                <TrainingCountdown startTime={trainingSnapshot.startTime} now={effectiveNowForOverlay} />
             )}
 
-            {/* Survival Timer */}
             {status === GameStatus.AsteroidField && asteroidFieldEndTime && (
-                <SurvivalTimerBar endTime={asteroidFieldEndTime} now={effectiveNowForOverlay} duration={C.ASTEROID_FIELD_DURATION} title="SURVIVAL" />
+                <SurvivalTimerBar
+                    endTime={asteroidFieldEndTime}
+                    now={effectiveNowForOverlay}
+                    duration={C.ASTEROID_FIELD_DURATION}
+                    title="Survival"
+                />
             )}
-            {status === GameStatus.TrainingSim && trainingSimState && effectiveNowForOverlay >= trainingSimState.startTime && (
+            {status === GameStatus.TrainingSim
+                && trainingSnapshot
+                && effectiveNowForOverlay >= trainingSnapshot.startTime && (
                 <>
-                    <div className="absolute top-32 left-1/2 -translate-x-1/2 w-2/3 z-30 pointer-events-none text-center text-cyan-300 font-semibold" style={{ textShadow: '0 0 5px #0ff' }}>
-                        Don't overshoot!
+                    <div
+                        className="pointer-events-none absolute left-1/2 z-30 w-[min(70%,18rem)] -translate-x-1/2 text-center text-xs font-bold uppercase tracking-wider text-cyan-200 [text-shadow:0_0_6px_#0ff]"
+                        style={{ top: 'calc(5.75rem + env(safe-area-inset-top, 0px))' }}
+                    >
+                        Don't overshoot
                     </div>
-                    <SurvivalTimerBar endTime={trainingSimState.endTime} now={effectiveNowForOverlay} duration={C.TRAINING_SIM_DURATION} title="TIME REMAINING" />
+                    <SurvivalTimerBar
+                        endTime={trainingSnapshot.endTime}
+                        now={effectiveNowForOverlay}
+                        duration={C.TRAINING_SIM_DURATION}
+                        title="Time remaining"
+                    />
                 </>
             )}
 
-            {/* Montezuma Health Bar (repurposed SurvivalTimerBar) */}
-            {isMontezumaActive && montezuma && (
-                <div className="absolute top-12 left-1/2 -translate-x-1/2 w-3/5 z-10 pointer-events-none">
-                    <div className="text-center font-bold text-lg uppercase text-yellow-300 mb-1" style={{ textShadow: '0 0 5px #f59e0b' }}>MONTEZUMA</div>
-                    <div className="h-4 bg-slate-700 rounded-full overflow-hidden border-2 border-yellow-500/50 shadow-lg">
-                        <div 
-                            className="h-full bg-yellow-400 transition-all duration-200 ease-linear"
-                            style={{ width: `${(montezuma.health / montezuma.maxHealth) * 100}%`, boxShadow: `0 0 10px #facc15` }}
-                        />
+            {isMontezumaActive && montezumaSnapshot && (
+                <div
+                    className="pointer-events-none absolute left-1/2 z-20 w-[min(58%,18rem)] -translate-x-1/2"
+                    style={{ top: 'calc(4.75rem + env(safe-area-inset-top, 0px))' }}
+                >
+                    <StatBar
+                        value={montezumaSnapshot.health}
+                        max={montezumaSnapshot.maxHealth}
+                        label="Montezuma"
+                        valueLabel={`${Math.max(0, Math.ceil(montezumaSnapshot.health)).toLocaleString()}`}
+                        tone="gold"
+                        segments={8}
+                        compact
+                    />
+                </div>
+            )}
+
+            <InGameMessageOverlay messages={messageSnapshots} now={effectiveNowForOverlay} />
+
+            {levelUpAnnounceTime > 0
+                && effectiveNowForOverlay - levelUpAnnounceTime < C.LEVEL_UP_ANNOUNCE_DURATION
+                && !hasPendingEncounter && (
+                <div className="pointer-events-none absolute left-1/2 top-1/2 z-50 w-[calc(100%-1rem)] max-w-xl -translate-x-1/2 -translate-y-1/2 animate-level-up">
+                    <div className="border-y border-yellow-300/60 bg-slate-950/80 px-3 py-4 text-center shadow-[0_0_35px_rgba(250,204,21,0.18)]">
+                        <span className="block text-[10px] font-black uppercase tracking-[0.35em] text-yellow-100">Level {level}</span>
+                        <h2 className="mt-1 text-4xl font-black uppercase text-yellow-300 [text-shadow:0_0_10px_#ff0,0_0_24px_#f90] sm:text-6xl">
+                            Level Up
+                        </h2>
                     </div>
                 </div>
             )}
 
-            {/* In-Game Messages */}
-            <InGameMessageOverlay messages={inGameMessages} now={effectiveNowForOverlay} />
+            <GlassPanel
+                tone={ammo === 0 ? 'danger' : 'cyan'}
+                className="absolute z-20 w-[10.75rem] px-2.5 py-2"
+                style={{
+                    left: sideInset,
+                    bottom: 'calc(0.75rem + env(safe-area-inset-bottom, 0px))',
+                }}
+            >
+                <div className="flex items-center justify-between gap-2">
+                    <span className="text-[9px] font-black uppercase tracking-widest text-slate-400">
+                        {isReloading ? 'Reloading' : 'Magazine'}
+                    </span>
+                    <span className={cx(
+                        'font-mono text-xs font-black tabular-nums',
+                        ammo === 0 ? 'text-red-300' : isReloading ? 'text-yellow-300' : 'text-cyan-100',
+                    )}>
+                        {ammo} / {maxAmmo}
+                    </span>
+                </div>
+                <div
+                    className="mt-1.5 grid h-4 grid-cols-12 items-end gap-1"
+                    role="progressbar"
+                    aria-label="Rounds remaining"
+                    aria-valuemin={0}
+                    aria-valuemax={maxAmmo}
+                    aria-valuenow={Math.max(0, ammo)}
+                >
+                    {Array.from({ length: MAGAZINE_SLOT_COUNT }, (_, index) => {
+                        const slotIsVisible = index < visibleMagazineSlots;
+                        const slotIsFilled = index < filledMagazineSlots;
+                        return (
+                            <span
+                                key={index}
+                                className={cx(
+                                    'h-4 origin-bottom rounded-t-full rounded-b-sm border transition-[transform,opacity] duration-100',
+                                    !slotIsVisible && 'opacity-0',
+                                    slotIsVisible && slotIsFilled && 'scale-y-100 border-cyan-200/70 bg-cyan-300 opacity-100 shadow-[0_0_6px_rgba(34,211,238,0.55)]',
+                                    slotIsVisible && !slotIsFilled && 'scale-y-75 border-slate-500/35 bg-slate-700 opacity-35',
+                                )}
+                                aria-hidden="true"
+                            />
+                        );
+                    })}
+                </div>
+            </GlassPanel>
 
-            {/* Level Up Announcer */}
-            {levelUpAnnounceTime > 0 && effectiveNowForOverlay - levelUpAnnounceTime < C.LEVEL_UP_ANNOUNCE_DURATION && !pendingEncounter && (
-                <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 z-50 animate-level-up pointer-events-none">
-                    <h2 className="text-7xl font-black text-yellow-400 uppercase" style={{ textShadow: '0 0 10px #ff0, 0 0 20px #f90' }}>
-                        Level Up!
-                    </h2>
+            {showRunEarnings && (
+                <div
+                    className="absolute z-20 flex max-w-[48%] flex-wrap justify-end gap-1.5"
+                    style={{
+                        right: oppositeSideInset,
+                        bottom: 'calc(0.75rem + env(safe-area-inset-bottom, 0px))',
+                    }}
+                    aria-label="Run earnings"
+                >
+                    {levelStreakThisRun > 0 && status !== GameStatus.TrainingSim && (
+                        <Badge tone="cyan">
+                            <Flame size={13} aria-hidden="true" />
+                            x{(1 + levelStreakThisRun * getStreakBonus(isHardMode)).toFixed(2)}
+                        </Badge>
+                    )}
+                    {currencyEarnedThisRun > 0 && (
+                        <CurrencyChip
+                            icon={<Coins size={14} />}
+                            label="Credits earned"
+                            value={`+${currencyEarnedThisRun.toLocaleString()}`}
+                            tone="gold"
+                            className="min-h-8 px-2 py-1"
+                        />
+                    )}
+                    {partsEarnedThisRun > 0 && (
+                        <CurrencyChip
+                            icon={<Wrench size={14} />}
+                            label="Upgrade parts earned"
+                            value={`+${partsEarnedThisRun.toLocaleString()}`}
+                            tone="violet"
+                            className="min-h-8 px-2 py-1"
+                        />
+                    )}
                 </div>
             )}
-
-            <div className="absolute left-4 text-2xl font-bold text-cyan-300 z-20" style={{ textShadow: '0 0 5px #0ff', bottom: `calc(1rem + env(safe-area-inset-bottom, 0px))` }}>
-                {isReloading ? (
-                    <span className={`text-yellow-400 ${status !== GameStatus.Paused ? 'animate-pulse' : ''}`}>RELOADING...</span>
-                ) : (
-                    <span>
-                        AMMO: <span className={ammo === 0 ? 'text-red-500 font-black' : ''}>{ammo}</span> / {maxAmmo}
-                    </span>
-                )}
-            </div>
-            
-            <div className="absolute right-4 flex flex-col items-end gap-1 z-20" style={{ bottom: `calc(1rem + env(safe-area-inset-bottom, 0px))` }}>
-                 {levelStreakThisRun > 0 && status !== GameStatus.TrainingSim && (
-                    <span className="text-sm font-bold text-cyan-300" style={{ textShadow: '0 0 5px #0ff' }}>
-                        x{(1 + levelStreakThisRun * getStreakBonus(isHardMode)).toFixed(2)} Streak
-                    </span>
-                )}
-                 {currencyEarnedThisRun > 0 && (
-                    <span className="text-lg font-bold text-yellow-300" style={{ textShadow: '0 0 5px #ff0' }}>
-                        +{currencyEarnedThisRun.toLocaleString()}
-                    </span>
-                )}
-                 {partsEarnedThisRun > 0 && (
-                    <span className="text-lg font-bold text-orange-400 flex items-center gap-1" style={{ textShadow: '0 0 5px #f97316' }}>
-                        <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M11.49 3.17c-.38-1.56-2.6-1.56-2.98 0L8 7.05H4.26c-1.56.38-2.22 2.36-1.05 3.53l2.92 2.92c.38.38.38 1 0 1.4l-2.92 2.92c-1.18 1.18-.52 3.15 1.05 3.53H8l.51 3.88c.38 1.56 2.6 1.56 2.98 0l.51-3.88h3.74c1.56-.38-2.22-2.36 1.05-3.53l-2.92-2.92a.996.996 0 010-1.4l2.92-2.92c-1.18-1.18.52-3.15-1.05-3.53H12l-.51-3.88z" clipRule="evenodd" /></svg>
-                        +{partsEarnedThisRun.toLocaleString()}
-                    </span>
-                )}
-            </div>
         </div>
     );
 };
 
-// Wrap in React.memo with a custom comparator to throttle updates
-export const InGameHUD = React.memo(InGameHUDComponent, (prev, next) => {
-    // Always re-render if critical state changes
-    if (prev.status !== next.status) return false;
-    if (prev.pauseStartTime !== next.pauseStartTime) return false;
-    if (prev.hasRevive !== next.hasRevive) return false;
-    if (prev.activeRareConsumable?.type !== next.activeRareConsumable?.type) return false;
-    if (prev.activeRareConsumable?.shotsLeft !== next.activeRareConsumable?.shotsLeft) return false;
-    
-    // Throttle time-based updates to ~15 FPS (every 66ms)
-    const timeDelta = next.effectiveNowForOverlay - prev.effectiveNowForOverlay;
-    if (timeDelta < 66) {
-        // Only skip if other visual props haven't changed significantly
-        // Note: We deliberately ignore 'asteroids' array ref changes here, relying on efficient
-        // recalculation inside the component if it does render.
-        // Check if score or ammo changed, as we want those to be somewhat responsive
-        // but 15fps is totally fine for text counters.
-        return true; 
+const messagesMatch = (previous: InGameMessage[], next: InGameMessage[]) => {
+    if (previous.length !== next.length) return false;
+    return previous.every((message, index) => {
+        const candidate = next[index];
+        return message.id === candidate.id
+            && message.text === candidate.text
+            && message.createdAt === candidate.createdAt
+            && message.duration === candidate.duration
+            && message.style === candidate.style;
+    });
+};
+
+const bossSnapshotsMatch = (previous: BossSnapshot | null, next: BossSnapshot | null) => (
+    previous === next
+    || (previous !== null
+        && next !== null
+        && previous.bossType === next.bossType
+        && previous.health === next.health
+        && previous.maxHealth === next.maxHealth
+        && previous.phase === next.phase)
+);
+
+const hudRenderPropsMatch = (previous: InGameHUDRenderProps, next: InGameHUDRenderProps) => {
+    const prev = previous.source;
+    const current = next.source;
+
+    if (
+        prev.status !== current.status
+        || prev.pauseStartTime !== current.pauseStartTime
+        || prev.totalPauseDuration !== current.totalPauseDuration
+        || prev.reloadCompleteTime !== current.reloadCompleteTime
+        || prev.reloadBoosts !== current.reloadBoosts
+        || prev.controlLayout !== current.controlLayout
+        || prev.asteroidFieldEndTime !== current.asteroidFieldEndTime
+        || prev.score !== current.score
+        || prev.highScore !== current.highScore
+        || prev.hasRevive !== current.hasRevive
+        || prev.hasHereticalInsight !== current.hasHereticalInsight
+        || prev.level !== current.level
+        || prev.enemiesDefeatedInLevel !== current.enemiesDefeatedInLevel
+        || prev.isHardMode !== current.isHardMode
+        || prev.levelUpAnnounceTime !== current.levelUpAnnounceTime
+        || prev.ammo !== current.ammo
+        || prev.maxAmmo !== current.maxAmmo
+        || prev.levelStreakThisRun !== current.levelStreakThisRun
+        || prev.currencyEarnedThisRun !== current.currencyEarnedThisRun
+        || prev.partsEarnedThisRun !== current.partsEarnedThisRun
+        || prev.isMontezumaActive !== current.isMontezumaActive
+        || prev.hapticsEnabled !== current.hapticsEnabled
+        || prev.dispatch !== current.dispatch
+        || prev.lastPauseToggle !== current.lastPauseToggle
+        || previous.generalReloadSpeedLevel !== next.generalReloadSpeedLevel
+        || previous.hasPendingPostFightOutcome !== next.hasPendingPostFightOutcome
+        || previous.hasPendingEncounter !== next.hasPendingEncounter
+        || previous.rareConsumableSnapshot?.type !== next.rareConsumableSnapshot?.type
+        || previous.rareConsumableSnapshot?.shotsLeft !== next.rareConsumableSnapshot?.shotsLeft
+        || previous.trainingSnapshot?.startTime !== next.trainingSnapshot?.startTime
+        || previous.trainingSnapshot?.endTime !== next.trainingSnapshot?.endTime
+        || previous.montezumaSnapshot?.health !== next.montezumaSnapshot?.health
+        || previous.montezumaSnapshot?.maxHealth !== next.montezumaSnapshot?.maxHealth
+        || !bossSnapshotsMatch(previous.bossSnapshot, next.bossSnapshot)
+        || !messagesMatch(previous.messageSnapshots, next.messageSnapshots)
+    ) {
+        return false;
     }
-    
-    return false;
-});
+
+    const overlayClockDelta = Math.abs(current.effectiveNowForOverlay - prev.effectiveNowForOverlay);
+    const engineClockDelta = Math.abs(current.lastTick - prev.lastTick);
+    return Math.max(overlayClockDelta, engineClockDelta) < HUD_FRAME_INTERVAL_MS;
+};
+
+const MemoizedInGameHUD = React.memo(InGameHUDComponent, hudRenderPropsMatch);
+
+// Snapshot mutable engine objects before memoization so health and message changes cannot be hidden
+// by stable object identities. Only pure clock updates are allowed through at the 30 fps HUD budget.
+export const InGameHUD: React.FC<InGameHUDProps> = (props) => {
+    const bossSnapshot: BossSnapshot | null = props.boss
+        ? {
+            bossType: props.boss.bossType,
+            health: props.boss.health,
+            maxHealth: props.boss.maxHealth,
+            phase: props.boss.phase,
+        }
+        : null;
+    const rareConsumableSnapshot = props.activeRareConsumable
+        ? { ...props.activeRareConsumable }
+        : null;
+    const trainingSnapshot = props.trainingSimState
+        ? {
+            startTime: props.trainingSimState.startTime,
+            endTime: props.trainingSimState.endTime,
+        }
+        : null;
+    const montezuma = props.isMontezumaActive
+        ? props.asteroids.find((asteroid) => asteroid.id === -999)
+        : null;
+    const montezumaSnapshot = montezuma
+        ? { health: montezuma.health, maxHealth: montezuma.maxHealth }
+        : null;
+
+    return (
+        <MemoizedInGameHUD
+            source={props}
+            bossSnapshot={bossSnapshot}
+            rareConsumableSnapshot={rareConsumableSnapshot}
+            trainingSnapshot={trainingSnapshot}
+            montezumaSnapshot={montezumaSnapshot}
+            messageSnapshots={props.inGameMessages.map((message) => ({ ...message }))}
+            generalReloadSpeedLevel={props.generalUpgrades.reload_speed_level ?? 0}
+            hasPendingPostFightOutcome={Boolean(props.pendingPostFightOutcome)}
+            hasPendingEncounter={Boolean(props.pendingEncounter)}
+        />
+    );
+};

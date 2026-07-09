@@ -1,47 +1,72 @@
-import React from 'react';
+import React, { useEffect, useId, useState } from 'react';
+import { LogOut, Play, Sparkles, Trophy } from 'lucide-react';
 import { playSound } from '../../sounds';
-import { ScreenOverlay } from './shared';
 import type { GameAction } from '../../types';
+import { AnimatedNumber } from './shared';
+import { Badge, GlassPanel, NeonButton, ScreenShell } from './primitives';
 
 interface VictoryScreenProps {
   dispatch: React.Dispatch<GameAction>;
   score: number;
 }
 
-export const VictoryScreen: React.FC<VictoryScreenProps> = ({ dispatch, score }) => (
-  <ScreenOverlay>
-    <h2 className="text-6xl sm:text-7xl font-bold uppercase text-yellow-300" style={{ textShadow: '0 0 15px #ff0' }}>
-      VICTORY
-    </h2>
-    <p className="mt-4 text-xl sm:text-2xl text-slate-200 max-w-lg">
-        You have shattered the Overmind, the nexus of the invasion fleet. Its psychic scream echoes into silence, and across the galaxy, the armada falters and falls into disarray.
-    </p>
-    <p className="mt-2 text-xl sm:text-2xl text-slate-200">
-        Your name will be remembered for eternity, hero.
-    </p>
-    <p className="mt-4 text-3xl sm:text-4xl text-slate-200">Final Score: {score.toLocaleString()}</p>
-    
-    <div className="mt-12 flex flex-col sm:flex-row gap-4">
-        <button
-          onClick={() => {
-            playSound('uiClick');
-            dispatch({ type: 'CONTINUE_AFTER_VICTORY' });
-          }}
-          className="px-8 py-4 text-xl sm:text-2xl font-bold text-slate-900 bg-cyan-400 rounded-lg shadow-lg shadow-cyan-500/30 transition-all
-                     hover:bg-cyan-300 hover:shadow-xl hover:shadow-cyan-400/50 focus:outline-none focus:ring-4 focus:ring-cyan-500 transform hover:scale-105"
-        >
-          Continue Playing
-        </button>
-        <button
-          onClick={() => {
-            playSound('uiClick');
-            dispatch({ type: 'RETURN_TO_MENU' });
-          }}
-          className="px-8 py-4 text-xl sm:text-2xl font-bold text-white bg-slate-700 rounded-lg shadow-lg shadow-slate-800/30 transition-all
-                     hover:bg-slate-600 hover:shadow-xl hover:shadow-slate-700/50 focus:outline-none focus:ring-4 focus:ring-slate-500 transform hover:scale-105"
-        >
-          Main Menu
-        </button>
-    </div>
-  </ScreenOverlay>
-);
+export const VictoryScreen: React.FC<VictoryScreenProps> = ({ dispatch, score }) => {
+  const titleId = useId();
+  const [displayScore, setDisplayScore] = useState(0);
+
+  useEffect(() => {
+    setDisplayScore(score);
+  }, [score]);
+
+  return (
+    <ScreenShell titleId={titleId} dim="soft" contentClassName="justify-center">
+      <GlassPanel tone="gold" className="relative my-auto w-full max-w-lg overflow-hidden p-5 text-center sm:p-7">
+        <Sparkles className="absolute left-5 top-6 h-5 w-5 animate-pulse text-yellow-200/60" aria-hidden="true" />
+        <Sparkles className="absolute right-6 top-14 h-4 w-4 animate-pulse text-cyan-200/55" aria-hidden="true" />
+
+        <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-full border border-yellow-200/50 bg-yellow-300/10 text-yellow-200 shadow-[0_0_28px_rgba(250,204,21,0.3)]">
+          <Trophy className="h-8 w-8" aria-hidden="true" />
+        </div>
+        <Badge tone="gold" className="mt-4">Overmind neutralized</Badge>
+        <h2 id={titleId} className="mt-3 text-4xl font-black uppercase text-yellow-200 sm:text-5xl">
+          Victory
+        </h2>
+        <p className="mx-auto mt-3 max-w-md text-sm leading-relaxed text-slate-200 sm:text-base">
+          The Overmind is shattered. Its armada falters as the psychic signal collapses into silence.
+        </p>
+        <p className="mt-2 text-sm font-bold text-cyan-200">The galaxy remembers your call sign.</p>
+
+        <div className="my-6 border-y border-yellow-200/20 py-5" aria-live="polite">
+          <p className="text-[10px] font-black uppercase tracking-wider text-yellow-200">Final score</p>
+          <p className="mt-1 font-mono text-4xl font-black tabular-nums text-slate-50 sm:text-5xl">
+            <AnimatedNumber value={displayScore} />
+          </p>
+        </div>
+
+        <div className="grid gap-3 sm:grid-cols-2">
+          <NeonButton
+            fullWidth
+            icon={<Play className="h-4 w-4" />}
+            onClick={() => {
+              playSound('uiClick');
+              dispatch({ type: 'CONTINUE_AFTER_VICTORY' });
+            }}
+          >
+            Continue playing
+          </NeonButton>
+          <NeonButton
+            fullWidth
+            variant="quiet"
+            icon={<LogOut className="h-4 w-4" />}
+            onClick={() => {
+              playSound('uiClick');
+              dispatch({ type: 'RETURN_TO_MENU' });
+            }}
+          >
+            Main menu
+          </NeonButton>
+        </div>
+      </GlassPanel>
+    </ScreenShell>
+  );
+};

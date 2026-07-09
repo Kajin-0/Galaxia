@@ -1,14 +1,66 @@
-import React from 'react';
-import { ScreenOverlay } from './shared';
+import React, { useEffect, useId, useState } from 'react';
+import { Binary, RadioTower, ScanLine } from 'lucide-react';
+import { Badge, GlassPanel, ScreenShell, StatBar } from './primitives';
 
-export const EncounterProcessingScreen: React.FC = () => (
-    <ScreenOverlay>
-        <div className="flex flex-col items-center justify-center gap-4">
-            <svg className="animate-spin h-16 w-16 text-cyan-300" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-                <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
-                <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-            </svg>
-            <h2 className="text-2xl sm:text-3xl font-bold text-slate-200 animate-pulse">Processing...</h2>
+export const EncounterProcessingScreen: React.FC = () => {
+  const titleId = useId();
+  const [progress, setProgress] = useState(8);
+
+  useEffect(() => {
+    if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
+      setProgress(94);
+      return;
+    }
+
+    const intervalId = window.setInterval(() => {
+      setProgress((current) => Math.min(94, current + 8));
+    }, 120);
+    return () => window.clearInterval(intervalId);
+  }, []);
+
+  const stage = progress < 38
+    ? 'Isolating carrier wave'
+    : progress < 72
+      ? 'Decrypting response'
+      : 'Resolving encounter outcome';
+
+  return (
+    <ScreenShell
+      titleId={titleId}
+      aria-busy="true"
+      contentClassName="justify-center"
+    >
+      <GlassPanel tone="violet" className="my-auto w-full max-w-sm p-6 text-center">
+        <Badge tone="violet" pulse>
+          <RadioTower className="h-3 w-3" aria-hidden="true" />
+          Decoding
+        </Badge>
+
+        <div className="relative mx-auto my-6 flex h-24 w-24 items-center justify-center" aria-hidden="true">
+          <div className="absolute inset-0 rounded-full border border-violet-300/25 animate-ping" />
+          <div className="absolute inset-2 rounded-full border border-dashed border-cyan-300/35 animate-spin" />
+          <div className="flex h-14 w-14 items-center justify-center rounded-full border border-violet-300/45 bg-violet-400/10 text-violet-200 shadow-neon-violet">
+            <ScanLine className="h-7 w-7 animate-pulse" />
+          </div>
         </div>
-    </ScreenOverlay>
-);
+
+        <h2 id={titleId} className="text-xl font-black text-slate-50 sm:text-2xl">Decoding transmission</h2>
+        <p className="mt-2 min-h-5 text-sm font-semibold text-violet-200" role="status" aria-live="polite">
+          {stage}
+        </p>
+
+        <StatBar
+          value={progress}
+          label="Signal reconstruction"
+          valueLabel={`${progress}%`}
+          tone="violet"
+          className="mt-5 text-left"
+        />
+        <div className="mt-4 flex items-center justify-center gap-2 text-xs text-slate-400">
+          <Binary className="h-4 w-4" aria-hidden="true" />
+          Do not interrupt uplink
+        </div>
+      </GlassPanel>
+    </ScreenShell>
+  );
+};
