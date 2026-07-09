@@ -6,6 +6,8 @@ import * as C from './constants';
 let audioContext: AudioContext | null = null;
 let sfxGain: GainNode | null = null; // For sound effects
 let musicGain: GainNode | null = null; // for music
+let musicAnalyser: AnalyserNode | null = null;
+let musicFrequencyData: Uint8Array | null = null;
 let sfxCompressor: DynamicsCompressorNode | null = null; // Controls dense SFX peaks
 let masterLimiter: DynamicsCompressorNode | null = null; // Final anti-clipping safety limiter
 let isInitialized = false;
@@ -101,7 +103,12 @@ export function initAudio() {
             // Music Path
             musicGain = audioContext.createGain();
             musicGain.gain.setValueAtTime(0, now);
-            musicGain.connect(masterLimiter);
+            musicAnalyser = audioContext.createAnalyser();
+            musicAnalyser.fftSize = 64;
+            musicAnalyser.smoothingTimeConstant = 0.82;
+            musicFrequencyData = new Uint8Array(musicAnalyser.frequencyBinCount);
+            musicGain.connect(musicAnalyser);
+            musicAnalyser.connect(masterLimiter);
             
             // Create the shared noise buffer once the context is ready.
             createWhiteNoiseBuffer(audioContext);
@@ -122,6 +129,16 @@ export function initAudio() {
             }
         }).catch(() => {});
     }
+}
+
+/** Returns normalized low-frequency music energy without allocating per sample. */
+export function getMusicEnergy(): number {
+    if (!musicAnalyser || !musicFrequencyData || audioContext?.state !== 'running') return 0;
+    musicAnalyser.getByteFrequencyData(musicFrequencyData);
+    const bins = Math.min(8, musicFrequencyData.length);
+    let total = 0;
+    for (let index = 0; index < bins; index++) total += musicFrequencyData[index];
+    return bins > 0 ? total / (bins * 255) : 0;
 }
 
 /**
@@ -445,7 +462,6 @@ function createAudioChain(
     // Create distortion if specified
     if (config.distortion) {
         const distortion = audioContext.createWaveShaper();
-        // @ts-expect-error - TypeScript is overly strict about Float32Array generic type parameter
         distortion.curve = config.distortion.curve;
         distortion.oversample = config.distortion.oversample || 'none';
         nodes.push(distortion);
@@ -713,7 +729,6 @@ function _playExplosionSound(audioContext: AudioContext, sfxGain: GainNode, now:
             distortionCurveCache[i] = (1 + k) * x / (1 + k * Math.abs(x));
         }
     }
-    // @ts-expect-error - TypeScript is overly strict about Float32Array generic type parameter
     distortion.curve = distortionCurveCache;
     distortion.oversample = '4x';
 
