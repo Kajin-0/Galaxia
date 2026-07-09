@@ -112,15 +112,6 @@ class WebFallbackBridge implements NativePurchaseBridge {
 // ========================================================================
 
 /**
- * Detect if native bridge is available
- */
-function isNativeBridgeAvailable(): boolean {
-    return typeof window !== 'undefined' && 
-           'nativePurchaseHandler' in window &&
-           typeof (window as any).nativePurchaseHandler === 'object';
-}
-
-/**
  * Get the native bridge interface
  */
 function getNativeBridge(): NativePurchaseBridge | null {

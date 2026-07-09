@@ -80,7 +80,7 @@ function detectMemoryPressure(state: GameState): boolean {
   return isHighLevel || hasManyEntities || isBossFight;
 }
 
-export function performCacheCleanup(aggressive: boolean = false) {
+export function performCacheCleanup(_aggressive: boolean = false) {
   // Perform cleanup
   cacheManager.cleanup();
 }

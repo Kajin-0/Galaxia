@@ -295,7 +295,7 @@ class IAPService {
     /**
      * Handle purchase failures with proper error categorization
      */
-    private async handlePurchaseFailure(productId: IAPProductId, error: PurchaseError): Promise<void> {
+    private async handlePurchaseFailure(productId: IAPProductId, _error: PurchaseError): Promise<void> {
 
         // Update pending purchase with failure
         const pendingPurchase = Array.from(this.pendingPurchases.values())

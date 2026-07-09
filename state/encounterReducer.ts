@@ -430,7 +430,6 @@ function handleChooseEncounterOption(state: GameState, action: Extract<GameActio
         }
         
         // For direct outcomes that don't involve a fight
-        const now = performance.now();
         const oldLevel = state.level;
         const newLevel = Math.max(1, state.level + (result.levels || 0));
         const inGameMessages = [...state.inGameMessages];
@@ -590,7 +589,7 @@ export function gameReducer(state: GameState, action: GameAction): GameState {
                         }
                     }
                     if (progressionChanged) saveProgression(currentProgression);
-                    const { seenEnemies, ...progressionToApply } = currentProgression;
+                    const { seenEnemies: _seenEnemies, ...progressionToApply } = currentProgression;
         
                     return { ...state, ...progressionToApply, status: GameStatus.EncounterOutcome, prePauseStatus: state.status, pauseStartTime: performanceTimestamp, encounterOutcome: processedResult, pendingPostFightOutcome: null, pendingFollowupOutcomes: null, postEncounterStatus: GameStatus.Intermission, isProcessingEncounter: false, currencyEarnedThisRun: newCurrencyEarnedThisRun, partsEarnedThisRun: newPartsEarnedThisRun, seenEnemies: new Set(currentProgression.seenEnemies), };
                 }
