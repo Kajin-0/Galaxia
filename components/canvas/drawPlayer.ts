@@ -1,4 +1,5 @@
 import type { HeroType, GeneralUpgrades, PowerUpInfusionEffect, GameState, PowerUpType, GameStatus as GSType } from '../../types';
+import { GameStatus } from '../../types';
 import * as C from '../../constants';
 import { easeOutQuint, easeOutCubic } from '../../utils/easing';
 
@@ -847,6 +848,118 @@ function drawDrone(ctx: CanvasRenderingContext2D, W: number, H: number, muzzleFl
     if (muzzleFlashActive) {
         const flashSprite = getDroneMuzzleFlashSprite(W, H, !!isRapidFire);
         ctx.drawImage(flashSprite.canvas, flashSprite.offsetX, flashSprite.offsetY);
+    }
+}
+
+export interface PlayerPreviewRenderOptions {
+    hero: HeroType;
+    centerX: number;
+    centerY: number;
+    maxWidth: number;
+    maxHeight: number;
+    now?: number;
+    animated?: boolean;
+}
+
+const previewGeneralUpgrades: GeneralUpgrades = {
+    movement_speed_level: 0,
+    reload_speed_level: 0,
+    ammo_capacity_level: 0,
+    trident_shot_level: 0,
+    trident_shot_unlocked: false,
+    graviton_collector_level: 0,
+};
+
+const previewHeroUpgrades: GameState['heroUpgrades'] = {
+    alpha_aoe_level: 0,
+    beta_homing_level: 0,
+    gamma_shield_hp_level: 0,
+};
+
+const previewActivePowerUps: GameState['activePowerUps'] = {};
+const previewPowerUpInfusions: PowerUpInfusionEffect[] = [];
+
+/**
+ * Draws a menu-safe player craft using the same ship and drone renderers as gameplay.
+ * Neutral preview state keeps this path independent from the active run and its effects.
+ */
+export function drawPlayerPreview(ctx: CanvasRenderingContext2D, options: PlayerPreviewRenderOptions) {
+    const {
+        hero,
+        centerX,
+        centerY,
+        maxWidth,
+        maxHeight,
+        now = 0,
+        animated = false,
+    } = options;
+
+    if (maxWidth <= 0 || maxHeight <= 0) return;
+
+    const shipW = C.PLAYER_SPRITE_WIDTH;
+    const shipH = C.PLAYER_SPRITE_HEIGHT;
+    const droneW = shipW * 0.6;
+    const droneH = shipH * 0.6;
+    const visualWidth = C.TRIDENT_DRONE_OFFSET_X * 2 + droneW + 20;
+    const visualHeight = shipH + 20;
+    const scale = Math.min(maxWidth / visualWidth, maxHeight / visualHeight);
+    const renderNow = animated ? now : 0;
+    const previewState: PlayerDrawState = {
+        now: renderNow,
+        playerVx: 0,
+        hero,
+        width: shipW,
+        height: shipH,
+        lastShotTime: Number.NEGATIVE_INFINITY,
+        recoilActive: false,
+        lastTridentShotTime: Number.NEGATIVE_INFINITY,
+        generalUpgrades: previewGeneralUpgrades,
+        powerUpInfusions: previewPowerUpInfusions,
+        activePowerUps: previewActivePowerUps,
+        shieldBreakingUntil: 0,
+        heroUpgrades: previewHeroUpgrades,
+        gameStatus: GameStatus.StartScreen,
+        hasPermanentRapidFire: false,
+        phaseShiftState: {
+            isActive: false,
+            activeUntil: 0,
+            cooldownUntil: 0,
+            distanceTraveledAtMaxSpeed: 0,
+        },
+        activeRareConsumable: null,
+        projectileColor: C.PROJECTILE_COLOR_DEFAULT,
+    };
+
+    const bobOffset = animated ? Math.sin(renderNow / 650) * 3 : 0;
+    const yaw = animated ? Math.sin(renderNow / 900) * 0.025 : 0;
+
+    ctx.save();
+    try {
+        ctx.translate(centerX, centerY + bobOffset);
+        ctx.rotate(yaw);
+        ctx.scale(scale, scale);
+
+        ctx.save();
+        ctx.translate(-C.TRIDENT_DRONE_OFFSET_X, 0);
+        drawDrone(ctx, droneW, droneH, false, previewState);
+        ctx.restore();
+
+        ctx.save();
+        ctx.translate(C.TRIDENT_DRONE_OFFSET_X, 0);
+        drawDrone(ctx, droneW, droneH, false, previewState);
+        ctx.restore();
+
+        ctx.save();
+        if (hero === 'alpha') {
+            drawAlphaShip(ctx, shipW, shipH, false, previewState);
+        } else if (hero === 'beta') {
+            drawBetaShip(ctx, shipW, shipH, false, previewState);
+        } else {
+            drawGammaShip(ctx, shipW, shipH, false, previewState);
+        }
+        ctx.restore();
+    } finally {
+        ctx.restore();
     }
 }
 

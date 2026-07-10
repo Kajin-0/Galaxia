@@ -21,11 +21,77 @@ import { warmUpPlayerCache } from './components/canvas/drawPlayer';
 import { warmUpEffectsCache } from './components/canvas/drawSpecialEffects';
 import { warmUpProjectileCache } from './components/canvas/drawProjectiles';
 import { warmUpParticleCache } from './components/canvas/drawImpacts';
+import { useUIPerformance } from './utils/uiPerformance';
+
+type BootReporter = (percent: number, message: string) => void;
+
+let bootWarmupPromise: Promise<void> | null = null;
+
+const waitForPaint = (abbreviated: boolean) => new Promise<void>(resolve => {
+    window.setTimeout(resolve, abbreviated ? 16 : 55);
+});
+
+const runBootWarmup = async (report: BootReporter, abbreviated: boolean): Promise<void> => {
+    const musicToPreload = [
+        '/Title_Screen.opus',
+        '/Armory_BGM.opus',
+        '/Battle_BGM.opus',
+        '/Boss_BGM.opus',
+        '/Final_BGM.opus',
+    ];
+
+    initAudio();
+    report(4, 'LINKING AUDIO CHANNELS');
+
+    let loadedCount = 0;
+    await preloadMusic(musicToPreload, () => {
+        loadedCount += 1;
+        report(4 + (loadedCount / musicToPreload.length) * 20, 'LINKING AUDIO CHANNELS');
+    });
+
+    await waitForPaint(abbreviated);
+    report(28, 'CALIBRATING WEAPON AUDIO');
+    warmUpAudioGenerators();
+
+    await waitForPaint(abbreviated);
+    report(42, 'PRIMING COMBAT SYSTEMS');
+    warmUpPools();
+
+    await waitForPaint(abbreviated);
+    report(58, 'MAPPING HOSTILE SIGNATURES');
+    warmUpEnemyCache();
+
+    await waitForPaint(abbreviated);
+    report(74, 'CHARGING FLIGHT SYSTEMS');
+    warmUpPlayerCache();
+    warmUpAsteroidCache();
+    warmUpEffectsCache();
+    warmUpProjectileCache();
+    warmUpParticleCache();
+
+    await waitForPaint(abbreviated);
+    report(92, 'ALIGNING HYPERDRIVE');
+    const canvas = document.createElement('canvas');
+    canvas.width = 10;
+    canvas.height = 10;
+    const context = canvas.getContext('2d');
+    if (context) {
+        context.shadowBlur = 10;
+        context.shadowColor = 'rgba(34,211,238,0.5)';
+        context.globalCompositeOperation = 'lighter';
+        context.fillStyle = '#22d3ee';
+        context.fillRect(0, 0, 10, 10);
+    }
+    precomputePerspectiveLUT();
+    report(100, 'ALL SYSTEMS ONLINE');
+};
 
 function App() {
     const [gameState, dispatch] = useReducer(gameReducer, getInitialState());
     const [assetsReady, setAssetsReady] = useState(false);
     const [isMenuTransitioning, setIsMenuTransitioning] = useState(false);
+
+    useUIPerformance();
     
     // Initialize IAP system
     useIAP(dispatch);
@@ -60,114 +126,37 @@ function App() {
         }
     }, []);
 
-    // This effect runs once to preload essential assets.
+    // Preload once even when development StrictMode replays effects.
     useEffect(() => {
-        const musicToPreload = [
-            '/Title_Screen.opus',
-            '/Armory_BGM.opus',
-            '/Battle_BGM.opus',
-            '/Boss_BGM.opus',
-            '/Final_BGM.opus',
-        ];
+        let active = true;
+        const splash = document.getElementById('splash-screen');
+        const loadingBar = document.getElementById('loading-bar-fg');
+        const loadingText = document.getElementById('loading-text');
+        const progress = document.getElementById('loading-bar-bg');
+        const abbreviated = window.sessionStorage.getItem('galaxia.boot.complete') === 'true';
+        splash?.toggleAttribute('data-repeat-boot', abbreviated);
 
-        async function preloadAssets() {
-            const loadingBar = document.getElementById('loading-bar-fg');
-            const loadingText = document.getElementById('loading-text');
-            
-            const setUI = (percent: number, text: string) => {
-                if (loadingBar) loadingBar.style.width = `${percent}%`;
-                if (loadingText) loadingText.textContent = text;
-            };
+        const report: BootReporter = (percent, message) => {
+            const clamped = Math.round(Math.min(100, Math.max(0, percent)));
+            if (loadingBar) loadingBar.style.width = `${clamped}%`;
+            if (loadingText) loadingText.textContent = message;
+            progress?.setAttribute('aria-valuenow', String(clamped));
+        };
 
-            // Helper to break the event loop and allow UI repaint
-            const nextFrame = () => new Promise(resolve => setTimeout(resolve, 50));
+        bootWarmupPromise ??= runBootWarmup(report, abbreviated);
+        void bootWarmupPromise
+            .catch(() => {
+                report(100, 'SYSTEMS RESTORED');
+            })
+            .finally(() => {
+                if (!active) return;
+                window.sessionStorage.setItem('galaxia.boot.complete', 'true');
+                window.setTimeout(() => setAssetsReady(true), abbreviated ? 80 : 320);
+            });
 
-            try {
-                initAudio(); // Initialize context
-
-                // Phase 1: Network Load (Music) - 0% to 20%
-                setUI(5, "DOWNLOADING ASSETS...");
-                
-                let loadedCount = 0;
-                const totalTracks = musicToPreload.length;
-                const trackProgressStep = 20 / totalTracks; // 20% total for music
-
-                await preloadMusic(musicToPreload, () => {
-                    loadedCount++;
-                    const currentPercent = loadedCount * trackProgressStep;
-                    setUI(currentPercent, "DOWNLOADING ASSETS...");
-                });
-
-                await nextFrame();
-
-                // Phase 2: Audio Synthesis - 20% to 30%
-                setUI(20, "CALIBRATING AUDIO...");
-                warmUpAudioGenerators();
-                await nextFrame();
-                setUI(30, "CALIBRATING AUDIO...");
-
-                // Phase 3: Object Pools - 30% to 50%
-                setUI(30, "ALLOCATING MEMORY...");
-                await nextFrame();
-                warmUpPools();
-                setUI(50, "ALLOCATING MEMORY...");
-
-                // Phase 4: Enemy Graphics - 50% to 70%
-                setUI(50, "RENDERING HOSTILES...");
-                await nextFrame();
-                warmUpEnemyCache();
-                setUI(70, "RENDERING HOSTILES...");
-
-                // Phase 5: Environment Graphics - 70% to 90%
-                setUI(70, "CHARGING SHIELDS...");
-                await nextFrame();
-                warmUpPlayerCache();
-                warmUpAsteroidCache();
-                warmUpEffectsCache();
-                warmUpProjectileCache(); // ✅ NEW: Bake projectile sprites
-                warmUpParticleCache();   // ✅ NEW: Bake particle sprites
-                setUI(90, "CHARGING SHIELDS...");
-
-                // Phase 6: GPU/Shader Warmup - 90% to 100%
-                setUI(90, "ENGAGING HYPERDRIVE...");
-                await nextFrame();
-                
-                // Shader warmup: Force compile of shadow and composite shaders
-                try {
-                    const canvas = document.createElement('canvas');
-                    canvas.width = 10;
-                    canvas.height = 10;
-                    const ctx = canvas.getContext('2d');
-                    if (ctx) {
-                        ctx.shadowBlur = 10;
-                        ctx.shadowColor = 'rgba(0,0,0,0.5)';
-                        ctx.globalCompositeOperation = 'lighter';
-                        ctx.filter = 'blur(5px)';
-                        ctx.fillStyle = 'red';
-                        ctx.fillRect(0,0,10,10);
-                    }
-                } catch(e) {
-                    // Ignore shader warmup errors
-                }
-                
-                precomputePerspectiveLUT();
-                setUI(100, "READY");
-                
-                // Small delay to show "READY"
-                setTimeout(() => setAssetsReady(true), 300);
-
-            } catch (e) {
-                // ✅ MOBILE OPTIMIZATION: Only log errors in development (console is slow on mobile)
-                if (process.env.NODE_ENV === 'development') {
-                    // eslint-disable-next-line no-console
-                    console.error("Loading error:", e);
-                }
-                // Fallback to start anyway to avoid stuck screen
-                setAssetsReady(true);
-            }
-        }
-
-        preloadAssets();
+        return () => {
+            active = false;
+        };
     }, []);
 
     // This effect now runs when assets are ready, not just on mount.
@@ -181,12 +170,12 @@ function App() {
         }
     }, [assetsReady]);
 
-    // Initialize volume settings from state once on load.
+    // Keep the audio engine aligned with persisted settings.
     useEffect(() => {
         initAudio();
         setMusicVolume(gameState.musicVolume);
         setSoundVolume(gameState.sfxVolume);
-    }, []);
+    }, [gameState.musicVolume, gameState.sfxVolume]);
 
     // Prevent iOS gesture navigation, system gestures, and Android predictive back visual
     useEffect(() => {
@@ -297,9 +286,7 @@ function App() {
         
         // Use the new window.enterFullscreen helper from index.html
         if (typeof (window as any).enterFullscreen === 'function') {
-            (window as any).enterFullscreen().catch((err: Error) => {
-                 // Error attempting to enable full-screen mode
-            });
+            (window as any).enterFullscreen().catch(() => undefined);
         }
         
         dispatch({ type: 'PREPARE_NEW_GAME', payload: { consumables, isHardMode } });
@@ -310,7 +297,7 @@ function App() {
         }, 700);
     }, [dispatch]);
     
-    const gameVisible = [
+    const isGameplayStatus = [
         GameStatus.Playing, 
         GameStatus.BossBattle, 
         GameStatus.AsteroidField, 
@@ -318,10 +305,12 @@ function App() {
         GameStatus.PlayerDying
     ].includes(gameState.status);
 
-    const showMenu = !gameVisible || isMenuTransitioning;
+    const isPaused = gameState.status === GameStatus.Paused;
+    const showGameScene = isGameplayStatus || isPaused;
+    const showInterface = !isGameplayStatus || isMenuTransitioning;
 
     return (
-        <div className="w-full h-full flex justify-center items-center bg-slate-950 select-none">
+        <div className="game-surface flex h-full w-full select-none items-center justify-center bg-space-void">
             <div 
                 className="relative"
                 style={{
@@ -336,25 +325,38 @@ function App() {
                 */}
                 <div 
                     className="absolute inset-0"
-                    style={{ visibility: gameVisible ? 'visible' : 'hidden' }}
+                    style={{ visibility: showGameScene ? 'visible' : 'hidden' }}
                 >
                     <GameView gameState={gameState} dispatch={dispatch} />
                 </div>
     
                 {/* UIManager and its background are overlaid when in menu or transitioning */}
-                {showMenu && (
+                {showInterface && (
                     <div 
-                        className={`absolute inset-0 border-2 border-cyan-500/30 shadow-2xl shadow-cyan-500/20 game-paused transition-all duration-700 ease-in ${
+                        className={`absolute inset-0 overflow-hidden border border-cyan-400/20 game-paused transition-all duration-700 ease-in ${
                             isMenuTransitioning ? 'opacity-0 scale-125 pointer-events-none' : 'opacity-100 scale-100'
-                        }`}
+                        } ${isPaused ? 'bg-transparent' : 'bg-space-deep shadow-neon-cyan'}`}
                         style={{
                             perspective: '900px',
-                            backgroundColor: '#0f172a'
                         }}
                     >
-                        <div className="directional-light" />
-                        <NebulaBackground />
+                        {!isPaused && <>
+                            <div className="directional-light" />
+                            <NebulaBackground />
+                            <div className="scan-grid absolute inset-0 opacity-50" aria-hidden="true" />
+                        </>}
                         {assetsReady && <UIManager gameState={gameState} dispatch={dispatch} handleStartGame={handleStartGame} />}
+                        {isMenuTransitioning && (
+                            <div className="pointer-events-none absolute inset-0 z-50 overflow-hidden" aria-hidden="true">
+                                {Array.from({ length: 12 }, (_, index) => (
+                                    <span
+                                        key={index}
+                                        className="warp-streak absolute top-1/2 h-40 w-px bg-gradient-to-t from-transparent via-cyan-100 to-transparent"
+                                        style={{ left: `${6 + index * 8}%`, animationDelay: `${index * 22}ms` }}
+                                    />
+                                ))}
+                            </div>
+                        )}
                     </div>
                 )}
             </div>

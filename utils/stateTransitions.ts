@@ -200,7 +200,7 @@ export function setupIntermissionState(state: GameState): Partial<GameState> {
 
     const streakMultiplierOnDefeat = 1 + state.levelStreakThisRun * getStreakBonus(state.isHardMode);
     
-    const { seenEnemies, ...progressionToApply } = currentProgression;
+    const { seenEnemies: _seenEnemies, ...progressionToApply } = currentProgression;
     
     // Set createdAt time for newly added messages now that we know it
     newMessages.forEach(msg => { if (msg.createdAt === 0) msg.createdAt = state.lastTick - state.totalPauseDuration; });
@@ -294,7 +294,7 @@ export function transitionToPlayerDying(state: GameState, now: number, effective
 }
 
 
-export function transitionToLevelUp(state: GameState, now: number, effectiveNow: number, performanceTimestamp: number): GameState {
+export function transitionToLevelUp(state: GameState, now: number, effectiveNow: number, _performanceTimestamp: number): GameState {
     let newState = {
         ...state,
         level: state.level + 1,
@@ -567,7 +567,7 @@ export function transitionToMontezumaComplete(state: GameState, now: number, eff
     };
 }
 
-export function transitionFromStory(state: GameState, now: number, effectiveNow: number): GameState {
+export function transitionFromStory(state: GameState, now: number, _effectiveNow: number): GameState {
     if (!state.currentStoryMessage) return state;
 
     const newDisplayedStoryLevels = [...new Set([...state.displayedStoryLevels, state.currentStoryMessage.level])];

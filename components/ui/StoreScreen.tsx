@@ -1,47 +1,110 @@
-import React, { useState, useEffect } from 'react';
+import React, { useEffect, useState } from 'react';
+import {
+    AlertTriangle,
+    ArrowLeft,
+    CheckCircle2,
+    Gem,
+    RefreshCw,
+    ShoppingBag,
+    Sparkles,
+} from 'lucide-react';
 import { playSound } from '../../sounds';
-import { ScreenOverlay, CrystaliteIcon, AnimatedNumber } from './shared';
+import {
+    AnimatedNumber,
+    Badge,
+    CrystaliteIcon,
+    CurrencyChip,
+    GlassPanel,
+    NeonButton,
+    ScreenShell,
+} from './shared';
 import * as C from '../../constants';
-import type { IAPProductId, GameAction } from '../../types';
+import type { GameAction, GameState, IAPProductId } from '../../types';
 
 interface StoreScreenProps {
     dispatch: React.Dispatch<GameAction>;
     crystalite: number;
-    iapState: {
-        currentPurchase: {
-            state: 'idle' | 'initiating' | 'purchasing' | 'validating' | 'success' | 'failed' | 'restoring';
-            productId: IAPProductId | null;
-            error: any;
-            progress: number;
-        };
-        isAvailable: boolean;
-        canMakePayments: boolean;
-    };
+    iapState: GameState['iap'];
 }
 
-export const StoreScreen: React.FC<StoreScreenProps> = ({ 
+type StoreProduct = (typeof C.IAP_PRODUCTS)[keyof typeof C.IAP_PRODUCTS];
+type StoreProductColor = StoreProduct['color'];
+type StoreIconSize = StoreProduct['iconSize'];
+
+const PRODUCT_STYLES: Record<StoreProductColor, {
+    tone: 'cyan' | 'gold' | 'violet';
+    title: string;
+    icon: string;
+    aura: string;
+}> = {
+    cyan: {
+        tone: 'cyan',
+        title: 'text-cyan-100',
+        icon: 'text-cyan-200',
+        aura: 'bg-cyan-400/10 border-cyan-300/25',
+    },
+    yellow: {
+        tone: 'gold',
+        title: 'text-yellow-100',
+        icon: 'text-yellow-200',
+        aura: 'bg-yellow-300/10 border-yellow-300/25',
+    },
+    purple: {
+        tone: 'violet',
+        title: 'text-violet-100',
+        icon: 'text-violet-200',
+        aura: 'bg-violet-400/10 border-violet-300/25',
+    },
+};
+
+const PRODUCT_ICON_SIZES: Record<StoreIconSize, string> = {
+    'h-12 w-12': 'h-8 w-8',
+    'h-16 w-16': 'h-9 w-9',
+    'h-20 w-20': 'h-10 w-10',
+    'h-24 w-24': 'h-11 w-11',
+    'h-28 w-28': 'h-12 w-12',
+    'h-32 w-32': 'h-14 w-14',
+};
+
+const PURCHASE_MESSAGES = {
+    idle: '',
+    initiating: 'Contacting App Store...',
+    purchasing: 'Processing payment...',
+    validating: 'Verifying purchase...',
+    success: 'Purchase successful. Crystalite balance updated.',
+    failed: 'Purchase failed. You can retry the selected bundle.',
+    restoring: 'Restoring purchases...',
+} as const;
+
+export const StoreScreen: React.FC<StoreScreenProps> = ({
     dispatch,
     crystalite,
-    iapState
+    iapState,
 }) => {
     const [showSuccessMessage, setShowSuccessMessage] = useState(false);
     const [showErrorMessage, setShowErrorMessage] = useState(false);
 
-    // Handle purchase state changes
     useEffect(() => {
+        let timeoutId: number | undefined;
         if (iapState.currentPurchase.state === 'success') {
+            setShowErrorMessage(false);
             setShowSuccessMessage(true);
-            setTimeout(() => {
+            timeoutId = window.setTimeout(() => {
                 setShowSuccessMessage(false);
                 dispatch({ type: 'CLEAR_PURCHASE_STATE' });
             }, 3000);
         } else if (iapState.currentPurchase.state === 'failed') {
+            setShowSuccessMessage(false);
             setShowErrorMessage(true);
-            setTimeout(() => {
+            timeoutId = window.setTimeout(() => {
                 setShowErrorMessage(false);
                 dispatch({ type: 'CLEAR_PURCHASE_ERROR' });
             }, 5000);
         }
+
+        return () => {
+            if (timeoutId !== undefined) window.clearTimeout(timeoutId);
+        };
     }, [iapState.currentPurchase.state, dispatch]);
 
     const handlePurchase = (productId: IAPProductId) => {
@@ -55,194 +118,182 @@ export const StoreScreen: React.FC<StoreScreenProps> = ({
     };
 
     const getPurchaseButtonText = (productId: IAPProductId) => {
-        if (iapState.currentPurchase.state === 'idle') {
-            return 'Buy';
-        }
-        
+        if (iapState.currentPurchase.state === 'idle') return 'Buy';
+
         if (iapState.currentPurchase.productId === productId) {
             switch (iapState.currentPurchase.state) {
                 case 'initiating': return 'Contacting Store...';
                 case 'purchasing': return 'Processing...';
                 case 'validating': return 'Verifying...';
-                case 'success': return 'Success!';
+                case 'success': return 'Success';
                 case 'failed': return 'Failed - Retry';
                 case 'restoring': return 'Restoring...';
                 default: return 'Buy';
             }
         }
-        
+
         return 'Buy';
     };
 
-    const getPurchaseButtonDisabled = (productId: IAPProductId) => {
-        // FIX: Corrected logic to allow retrying a failed purchase.
-        // The button should be disabled if a purchase is actively in progress,
-        // but not if it has failed or is idle.
-        const purchaseInProgress =
-            iapState.currentPurchase.state !== 'idle' &&
-            iapState.currentPurchase.state !== 'failed';
+    const getPurchaseButtonDisabled = (_productId: IAPProductId) => {
+        const purchaseInProgress = iapState.currentPurchase.state !== 'idle'
+            && iapState.currentPurchase.state !== 'failed';
 
-        return !iapState.isAvailable ||
-               !iapState.canMakePayments ||
-               purchaseInProgress;
+        return !iapState.isAvailable
+            || !iapState.canMakePayments
+            || purchaseInProgress;
     };
 
-    const getPurchaseButtonClassName = (productId: IAPProductId, color: string) => {
-        const baseClasses = `mt-4 w-full px-4 py-3 font-bold text-sm sm:text-base rounded-lg shadow-md transition-all focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-offset-slate-900`;
-        
-        if (iapState.currentPurchase.productId === productId) {
-            switch (iapState.currentPurchase.state) {
-                case 'success':
-                    return `${baseClasses} text-white bg-green-500 shadow-green-500/30 hover:bg-green-400 focus:ring-green-500`;
-                case 'failed':
-                    return `${baseClasses} text-white bg-red-500 shadow-red-500/30 hover:bg-red-400 focus:ring-red-500`;
-                default:
-                    return `${baseClasses} text-slate-900 bg-${color}-400 shadow-${color}-500/30 hover:bg-${color}-300 hover:shadow-lg focus:ring-${color}-500`;
-            }
-        }
-        
-        return `${baseClasses} text-slate-900 bg-${color}-400 shadow-${color}-500/30 hover:bg-${color}-300 hover:shadow-lg focus:ring-${color}-500`;
-    };
+    const statusTone = iapState.currentPurchase.state === 'success'
+        ? 'text-lime-300'
+        : iapState.currentPurchase.state === 'failed'
+            ? 'text-red-300'
+            : 'text-cyan-300';
 
-    const getProgressBar = () => {
-        if (iapState.currentPurchase.state === 'idle') return null;
-        
-        return (
-            <div className="mt-4 w-full max-w-md bg-slate-700 rounded-full h-2">
-                <div 
-                    className="bg-gradient-to-r from-cyan-400 to-purple-500 h-2 rounded-full transition-all duration-300 ease-out"
-                    style={{ width: `${iapState.currentPurchase.progress}%` }}
-                />
-            </div>
-        );
-    };
-
-    const getStatusMessage = () => {
-        if (iapState.currentPurchase.state === 'idle') return null;
-        
-        const messages = {
-            initiating: 'Contacting App Store...',
-            purchasing: 'Processing payment...',
-            validating: 'Verifying purchase...',
-            success: 'Purchase successful!',
-            failed: 'Purchase failed',
-            restoring: 'Restoring purchases...'
-        };
-        
-        return (
-            <div className="mt-2 text-center">
-                <p className={`text-sm font-medium ${
-                    iapState.currentPurchase.state === 'success' ? 'text-green-400' :
-                    iapState.currentPurchase.state === 'failed' ? 'text-red-400' :
-                    'text-cyan-400'
-                }`}>
-                    {messages[iapState.currentPurchase.state]}
-                </p>
-            </div>
-        );
-    };
+    const titleId = 'store-screen-title';
+    const purchaseState = iapState.currentPurchase.state;
+    const purchaseActive = purchaseState !== 'idle';
 
     return (
-        <ScreenOverlay>
-            <div className="w-full h-full flex flex-col items-center">
-                <h1 className="text-5xl md:text-6xl font-black uppercase tracking-widest text-cyan-300" style={{ textShadow: '0 0 15px #0ff' }}>
-                    Store
-                </h1>
-                
-                <div className="mt-2 flex items-center justify-center gap-2 text-slate-300 text-xl sm:text-2xl">
-                    <span className="flex items-center gap-2 text-purple-400" title="Crystalite">
-                        <CrystaliteIcon />
-                        <AnimatedNumber value={crystalite} />
-                    </span>
-                </div>
-
-                {/* IAP Status Messages */}
-                {getProgressBar()}
-                {getStatusMessage()}
-
-                {/* Success/Error Messages */}
-                {showSuccessMessage && (
-                    <div className="mt-4 px-6 py-3 bg-green-500/20 border border-green-500/50 rounded-lg">
-                        <p className="text-green-400 font-medium text-center">
-                            ✅ Purchase completed successfully! Crystalite added to your account.
-                        </p>
+        <ScreenShell titleId={titleId} contentClassName="py-2 sm:py-5">
+            <main className="flex w-full max-w-5xl flex-col items-center pb-2 text-center">
+                <header className="w-full shrink-0">
+                    <p className="text-[10px] font-black uppercase tracking-[0.24em] text-violet-300/80">Crystalite Exchange</p>
+                    <h1 id={titleId} className="neon-title mt-1 text-3xl font-black uppercase sm:text-4xl">Store</h1>
+                    <div className="mt-3 flex justify-center">
+                        <CurrencyChip
+                            icon={<CrystaliteIcon className="h-5 w-5" />}
+                            label="Crystalite"
+                            value={<AnimatedNumber value={crystalite} />}
+                            tone="violet"
+                        />
                     </div>
-                )}
+                </header>
 
-                {showErrorMessage && iapState.currentPurchase.error && (
-                    <div className="mt-4 px-6 py-3 bg-red-500/20 border border-red-500/50 rounded-lg max-w-md">
-                        <p className="text-red-400 font-medium text-center">
-                            ❌ {iapState.currentPurchase.error.message || 'Purchase failed. Please try again.'}
-                        </p>
-                    </div>
-                )}
+                <section
+                    className="mt-3 min-h-10 w-full max-w-lg"
+                    aria-live="polite"
+                    aria-atomic="true"
+                    aria-busy={purchaseActive && purchaseState !== 'success' && purchaseState !== 'failed'}
+                >
+                    {purchaseActive && (
+                        <div className="w-full">
+                            <div
+                                className="h-1.5 w-full overflow-hidden rounded-full border border-slate-600/70 bg-slate-950"
+                                role="progressbar"
+                                aria-label="Purchase progress"
+                                aria-valuemin={0}
+                                aria-valuemax={100}
+                                aria-valuenow={iapState.currentPurchase.progress}
+                            >
+                                <div
+                                    className="h-full origin-left bg-cyan-400 shadow-neon-cyan transition-transform duration-300 ease-expo"
+                                    style={{ transform: `scaleX(${Math.min(100, Math.max(0, iapState.currentPurchase.progress)) / 100})` }}
+                                />
+                            </div>
+                            <p className={`mt-2 text-xs font-bold ${statusTone}`}>{PURCHASE_MESSAGES[purchaseState]}</p>
+                        </div>
+                    )}
 
-                {/* Store Items */}
-                <div className="mt-6 w-full max-w-4xl flex-grow overflow-y-auto p-1 pr-2">
-                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                        {Object.values(C.IAP_PRODUCTS).map(product => (
-                            <div key={product.id} className={`flex flex-col items-center bg-slate-800/70 p-4 rounded-lg border-2 border-${product.color}-500/50`}>
-                                <div className="flex-shrink-0 flex items-center justify-center h-32">
-                                    <CrystaliteIcon className={`${product.iconSize} ${product.iconColor}`} />
+                    {showSuccessMessage && (
+                        <div className="mt-2 flex items-center justify-center gap-2 text-sm font-bold text-lime-200" role="status">
+                            <CheckCircle2 className="h-5 w-5" aria-hidden="true" />
+                            Crystalite added to your account.
+                        </div>
+                    )}
+
+                    {showErrorMessage && iapState.currentPurchase.error && (
+                        <div className="mt-2 flex items-start justify-center gap-2 text-sm font-bold text-red-200" role="alert">
+                            <AlertTriangle className="mt-0.5 h-5 w-5 shrink-0" aria-hidden="true" />
+                            <span>{iapState.currentPurchase.error.message || 'Purchase failed. Please try again.'}</span>
+                        </div>
+                    )}
+                </section>
+
+                <section aria-label="Crystalite bundles" className="mt-3 grid w-full grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
+                    {Object.values(C.IAP_PRODUCTS).map((product, index) => {
+                        const style = PRODUCT_STYLES[product.color];
+                        const isSelectedProduct = iapState.currentPurchase.productId === product.id;
+                        const isSuccess = isSelectedProduct && purchaseState === 'success';
+                        const isFailed = isSelectedProduct && purchaseState === 'failed';
+                        const bundleLabel = index === 2
+                            ? 'Popular'
+                            : index === Object.values(C.IAP_PRODUCTS).length - 1
+                                ? 'Maximum Reserve'
+                                : null;
+
+                        return (
+                            <GlassPanel
+                                key={product.id}
+                                tone={style.tone}
+                                interactive
+                                className="flex min-h-52 flex-col p-4 text-left"
+                            >
+                                <div className="flex items-start justify-between gap-3">
+                                    <div className={`flex h-16 w-16 shrink-0 items-center justify-center rounded-md border ${style.aura}`}>
+                                        <span className="relative">
+                                            <Gem className={`${PRODUCT_ICON_SIZES[product.iconSize]} ${style.icon}`} strokeWidth={1.5} aria-hidden="true" />
+                                            <Sparkles className="absolute -right-2 -top-2 h-4 w-4 text-white/75" aria-hidden="true" />
+                                        </span>
+                                    </div>
+                                    {bundleLabel && <Badge tone={style.tone}>{bundleLabel}</Badge>}
                                 </div>
-                                
-                                <div className="text-center mt-2 flex-grow">
-                                    <p className={`font-bold text-lg sm:text-xl text-${product.color}-300`}>
-                                        {product.name}
+
+                                <div className="mt-3 min-w-0 flex-1">
+                                    <h2 className={`text-base font-black uppercase sm:text-lg ${style.title}`}>{product.name}</h2>
+                                    <p className="mt-1 flex items-center gap-1.5 font-mono text-lg font-black tabular-nums text-slate-100">
+                                        {product.amount.toLocaleString()}
+                                        <CrystaliteIcon className={`h-5 w-5 ${style.icon}`} />
                                     </p>
-                                    <p className="text-base text-slate-300 flex items-center justify-center gap-1">
-                                        {product.amount.toLocaleString()} <CrystaliteIcon className="h-5 w-5" />
-                                    </p>
-                                    <p className="text-sm text-slate-400 mt-1">
-                                        {product.id}
-                                    </p>
+                                    <p className="mt-1 text-xs text-slate-400">Secure one-time Crystalite delivery</p>
                                 </div>
-                                
-                                <button
+
+                                <NeonButton
+                                    fullWidth
+                                    variant={isFailed ? 'danger' : isSuccess ? 'secondary' : 'primary'}
+                                    className={isSuccess ? 'border-lime-300/50 bg-lime-900/70 text-lime-100' : undefined}
+                                    icon={isSuccess
+                                        ? <CheckCircle2 className="h-4 w-4" />
+                                        : <ShoppingBag className="h-4 w-4" />}
                                     onClick={() => handlePurchase(product.id)}
                                     disabled={getPurchaseButtonDisabled(product.id)}
-                                    className={getPurchaseButtonClassName(product.id, product.color)}
+                                    aria-label={`${getPurchaseButtonText(product.id)} ${product.name} for ${product.price}`}
                                 >
-                                    {getPurchaseButtonText(product.id)} ({product.price})
-                                </button>
-                            </div>
-                        ))}
-                    </div>
-                </div>
+                                    {getPurchaseButtonText(product.id)} - {product.price}
+                                </NeonButton>
+                            </GlassPanel>
+                        );
+                    })}
+                </section>
 
-                {/* Action Buttons */}
-                <div className="my-6 flex flex-col sm:flex-row gap-4">
-                    <button
+                {!iapState.isAvailable && (
+                    <div className="mt-4 flex w-full max-w-lg items-start justify-center gap-2 text-sm text-yellow-200" role="status">
+                        <AlertTriangle className="mt-0.5 h-5 w-5 shrink-0" aria-hidden="true" />
+                        <span>In-app purchases are unavailable. Development mode remains active.</span>
+                    </div>
+                )}
+
+                <footer className="mt-5 grid w-full max-w-lg grid-cols-1 gap-2 pb-1 min-[420px]:grid-cols-2">
+                    <NeonButton
+                        variant="secondary"
+                        icon={<RefreshCw className="h-5 w-5" />}
                         onClick={handleRestorePurchases}
                         disabled={!iapState.isAvailable || iapState.currentPurchase.state !== 'idle'}
-                        className="px-6 py-3 text-lg font-bold text-white bg-blue-600 rounded-lg shadow-lg shadow-blue-800/30 transition-all
-                                   hover:bg-blue-500 hover:shadow-xl hover:shadow-blue-700/50 focus:outline-none focus:ring-4 focus:ring-blue-500
-                                   disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:bg-blue-600 disabled:hover:shadow-lg"
                     >
                         Restore Purchases
-                    </button>
-                    
-                    <button
+                    </NeonButton>
+                    <NeonButton
+                        variant="quiet"
+                        icon={<ArrowLeft className="h-5 w-5" />}
                         onClick={() => {
                             playSound('uiClick');
                             dispatch({ type: 'RETURN_TO_MENU' });
                         }}
-                        className="px-8 py-4 text-lg sm:text-xl font-bold text-white bg-slate-700 rounded-lg shadow-lg shadow-slate-800/30 transition-all
-                                   hover:bg-slate-600 hover:shadow-xl hover:shadow-slate-700/50 focus:outline-none focus:ring-4 focus:ring-slate-500 transform hover:scale-105"
                     >
                         Back to Menu
-                    </button>
-                </div>
-
-                {/* IAP Status Indicator */}
-                {!iapState.isAvailable && (
-                    <div className="mt-4 px-4 py-2 bg-yellow-500/20 border border-yellow-500/50 rounded-lg">
-                        <p className="text-yellow-400 text-sm text-center">
-                            ⚠️ In-App Purchases not available. Using development mode.
-                        </p>
-                    </div>
-                )}
-            </div>
-        </ScreenOverlay>
+                    </NeonButton>
+                </footer>
+            </main>
+        </ScreenShell>
     );
 };

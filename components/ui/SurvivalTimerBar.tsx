@@ -1,27 +1,34 @@
 import React from 'react';
+import { Clock3 } from 'lucide-react';
+import { StatBar } from './primitives';
 
 interface SurvivalTimerBarProps {
-  endTime: number;
-  now: number;
-  duration: number;
-  title: string;
+    endTime: number;
+    now: number;
+    duration: number;
+    title: string;
 }
 
 export const SurvivalTimerBar: React.FC<SurvivalTimerBarProps> = ({ endTime, now, duration, title }) => {
     const remainingTime = Math.max(0, endTime - now);
-    const progressPercent = Math.max(0, (remainingTime / duration) * 100);
 
     return (
-        <div className="absolute top-36 left-1/2 -translate-x-1/2 w-3/5 z-10 pointer-events-none">
-            <div className="text-center font-bold text-lg uppercase text-yellow-300 mb-1" style={{ textShadow: '0 0 5px #f59e0b' }}>
+        <div
+            className="pointer-events-none absolute left-1/2 z-20 w-[min(58%,18rem)] -translate-x-1/2"
+            style={{ top: 'calc(7rem + env(safe-area-inset-top, 0px))' }}
+        >
+            <div className="mb-1 flex items-center justify-center gap-1.5 text-[10px] font-black uppercase tracking-widest text-yellow-200">
+                <Clock3 size={12} aria-hidden="true" />
                 {title}
             </div>
-            <div className="h-4 bg-slate-700 rounded-full overflow-hidden border-2 border-yellow-500/50 shadow-lg">
-                <div 
-                    className="h-full bg-yellow-400 transition-all duration-200 ease-linear"
-                    style={{ width: `${progressPercent}%`, boxShadow: `0 0 10px #facc15` }}
-                />
-            </div>
+            <StatBar
+                value={remainingTime}
+                max={duration}
+                valueLabel={`${Math.ceil(remainingTime / 1000)}s`}
+                tone="gold"
+                segments={10}
+                compact
+            />
         </div>
     );
 };

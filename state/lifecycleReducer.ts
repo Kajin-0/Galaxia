@@ -59,7 +59,7 @@ function handleContinueGame(state: GameState, action: Extract<GameAction, { type
     if (progressionChanged) {
         saveProgression(currentProgression);
         // Prevent overwriting in-run upgrades when applying new consumable state.
-        const { seenEnemies, ...progressionToApply } = currentProgression;
+        const { seenEnemies: _seenEnemies, ...progressionToApply } = currentProgression;
         newState = { ...newState, ...progressionToApply };
     }
 

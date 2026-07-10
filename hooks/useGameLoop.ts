@@ -111,6 +111,11 @@ export const useGameLoop = ({
                 accumulator.current = 0;
             }
 
+            // Preserve the last rendered pixels while paused and avoid drawing hidden menu scenes.
+            if (!isActive) {
+                return;
+            }
+
             // --- UNIFIED RENDER STEP ---
             // This runs once per frame, after all simulation steps are complete.
             // It draws the latest state from the engineStateRef.

@@ -1,36 +1,56 @@
 import React, { useState } from 'react';
+import {
+  Crosshair,
+  Gauge,
+  Lock,
+  Orbit,
+  Rocket,
+  ShieldPlus,
+  ShoppingBag,
+  Skull,
+  TimerReset,
+  Trophy,
+  Warehouse,
+  Wind,
+  Wrench,
+} from 'lucide-react';
 import { playSound } from '../../sounds';
-import { HeroType, Consumables, GameAction } from '../../types';
+import type { Consumables, GameAction, HeroType } from '../../types';
 import * as C from '../../constants';
-import { ScreenOverlay } from './shared';
-
-// Minimalist previews for the hero selection UI
-const AlphaPreview: React.FC = () => <div className="w-full h-full bg-slate-700" style={{ clipPath: 'polygon(50% 0, 100% 75%, 80% 100%, 20% 100%, 0 75%)' }}/>
-const BetaPreview: React.FC = () => <div className="w-full h-full bg-slate-700" style={{ clipPath: 'polygon(50% 0, 70% 90%, 50% 100%, 30% 90%)' }}/>
-const GammaPreview: React.FC = () => <div className="w-full h-full bg-slate-700" style={{ clipPath: 'polygon(50% 0, 100% 40%, 85% 100%, 15% 100%, 0 40%)' }}/>
+import { triggerHaptic } from '../../utils/haptics';
+import { HeroPreviewCanvas } from './HeroPreviewCanvas';
+import { Badge, GlassPanel, NeonButton, ScreenShell, StatBar, Toggle, cx } from './shared';
 
 interface HeroPreviewInfo {
-    component: React.FC;
-    name: string;
-    description: string;
+  name: string;
+  role: string;
+  description: string;
+  accent: string;
+  idleAccent: string;
 }
 
 const heroPreviews: Record<HeroType, HeroPreviewInfo> = {
-    alpha: { 
-        component: AlphaPreview, 
-        name: 'Alpha', 
-        description: '+5% Critical Hit Chance' 
-    },
-    beta: { 
-        component: BetaPreview, 
-        name: 'Beta',
-        description: 'Enhanced Agility' 
-    },
-    gamma: { 
-        component: GammaPreview, 
-        name: 'Gamma',
-        description: '+25% Shield Chance on Level Up'
-    },
+  alpha: {
+    name: 'Alpha',
+    role: 'Vanguard',
+    description: '+5% critical hit chance',
+    accent: 'border-cyan-300/60 text-cyan-200 shadow-neon-cyan',
+    idleAccent: 'border-cyan-500/25 text-cyan-300/65 hover:border-cyan-300/45',
+  },
+  beta: {
+    name: 'Beta',
+    role: 'Interceptor',
+    description: 'Enhanced agility',
+    accent: 'border-violet-300/60 text-violet-200 shadow-neon-violet',
+    idleAccent: 'border-violet-500/25 text-violet-300/65 hover:border-violet-300/45',
+  },
+  gamma: {
+    name: 'Gamma',
+    role: 'Bulwark',
+    description: '+25% shield chance on level up',
+    accent: 'border-lime-300/60 text-lime-200 shadow-[0_0_24px_rgba(163,230,53,0.18)]',
+    idleAccent: 'border-lime-500/25 text-lime-300/65 hover:border-lime-300/45',
+  },
 };
 
 interface StartScreenProps {
@@ -50,195 +70,250 @@ interface StartScreenProps {
   hardModeUnlocked: boolean;
   hardModePreference: boolean;
   onSetHardModePreference: (value: boolean) => void;
+  hapticsEnabled: boolean;
 }
 
-export const StartScreen: React.FC<StartScreenProps> = ({ 
-    onStart, dispatch, highScore, unlockedHeroes, cumulativeScore, cumulativeLevels, 
-    ownedRevives, ownedFastReloads, ownedRapidFires, ownedSpeedBoosts,
-    selectedHero, onSelectHero, bossesDefeated, hardModeUnlocked, hardModePreference, onSetHardModePreference
+export const StartScreen: React.FC<StartScreenProps> = ({
+  onStart,
+  dispatch,
+  highScore,
+  unlockedHeroes,
+  cumulativeScore,
+  cumulativeLevels,
+  ownedRevives,
+  ownedFastReloads,
+  ownedRapidFires,
+  ownedSpeedBoosts,
+  selectedHero,
+  onSelectHero,
+  bossesDefeated,
+  hardModeUnlocked,
+  hardModePreference,
+  onSetHardModePreference,
+  hapticsEnabled,
 }) => {
   const [consumables, setConsumables] = useState<Consumables>({
-      useRevive: false,
-      useFastReload: false,
-      useRapidFire: false,
-      useSpeedBoost: false,
+    useRevive: false,
+    useFastReload: false,
+    useRapidFire: false,
+    useSpeedBoost: false,
   });
 
-  const handleConsumableChange = (consumable: keyof Consumables, value: boolean) => {
-    setConsumables(prev => ({...prev, [consumable]: value}));
-  };
-
-  const heroUnlockStatus: Record<HeroType, { isUnlocked: boolean; requirement: string; progress: string; }> = {
-    alpha: { isUnlocked: true, requirement: '', progress: '' },
+  const heroUnlockStatus: Record<HeroType, { isUnlocked: boolean; requirement: string; current: number; target: number }> = {
+    alpha: { isUnlocked: true, requirement: 'Flight ready', current: 1, target: 1 },
     beta: {
-        isUnlocked: unlockedHeroes.beta,
-        requirement: `Unlock: Reach Total Level ${C.BETA_UNLOCK_LEVELS}`,
-        progress: `Progress: ${Math.min(cumulativeLevels, C.BETA_UNLOCK_LEVELS)} / ${C.BETA_UNLOCK_LEVELS}`
+      isUnlocked: unlockedHeroes.beta,
+      requirement: `Reach total level ${C.BETA_UNLOCK_LEVELS}`,
+      current: Math.min(cumulativeLevels, C.BETA_UNLOCK_LEVELS),
+      target: C.BETA_UNLOCK_LEVELS,
     },
     gamma: {
-        isUnlocked: unlockedHeroes.gamma,
-        requirement: `Unlock: Reach Total Score ${C.GAMMA_UNLOCK_SCORE.toLocaleString()}`,
-        progress: `Progress: ${Math.min(cumulativeScore, C.GAMMA_UNLOCK_SCORE).toLocaleString()} / ${C.GAMMA_UNLOCK_SCORE.toLocaleString()}`
-    }
+      isUnlocked: unlockedHeroes.gamma,
+      requirement: `Reach ${C.GAMMA_UNLOCK_SCORE.toLocaleString()} total score`,
+      current: Math.min(cumulativeScore, C.GAMMA_UNLOCK_SCORE),
+      target: C.GAMMA_UNLOCK_SCORE,
+    },
   };
 
-  const selectedHeroInfo = heroPreviews[selectedHero];
-  const selectedHeroUnlockInfo = heroUnlockStatus[selectedHero];
-  const canStart = selectedHeroUnlockInfo.isUnlocked;
+  const selectedInfo = heroPreviews[selectedHero];
+  const selectedUnlock = heroUnlockStatus[selectedHero];
   const hangarUnlocked = bossesDefeated > 0;
 
   const consumableChecks = [
-      { id: 'useRevive', label: `Use a ${C.CONSUMABLE_NAMES.revive}`, owned: ownedRevives, color: 'text-pink-400' },
-      { id: 'useFastReload', label: `Use an ${C.CONSUMABLE_NAMES.fastReload}`, owned: ownedFastReloads, color: 'text-yellow-400' },
-      { id: 'useRapidFire', label: `Use an ${C.CONSUMABLE_NAMES.rapidFire}`, owned: ownedRapidFires, color: 'text-red-400' },
-      { id: 'useSpeedBoost', label: `Use ${C.CONSUMABLE_NAMES.speedBoost}`, owned: ownedSpeedBoosts, color: 'text-blue-400' },
+    { id: 'useRevive', label: C.CONSUMABLE_NAMES.revive, owned: ownedRevives, icon: ShieldPlus, tone: 'text-pink-300' },
+    { id: 'useFastReload', label: C.CONSUMABLE_NAMES.fastReload, owned: ownedFastReloads, icon: TimerReset, tone: 'text-yellow-300' },
+    { id: 'useRapidFire', label: C.CONSUMABLE_NAMES.rapidFire, owned: ownedRapidFires, icon: Gauge, tone: 'text-red-300' },
+    { id: 'useSpeedBoost', label: C.CONSUMABLE_NAMES.speedBoost, owned: ownedSpeedBoosts, icon: Wind, tone: 'text-blue-300' },
   ] as const;
 
+  const navigate = (action: GameAction) => {
+    playSound('uiClick');
+    triggerHaptic('uiTap', hapticsEnabled);
+    dispatch(action);
+  };
+
   return (
-    <ScreenOverlay>
-      <div className="overflow-y-auto w-full flex flex-col items-center pb-4">
-        <h1 className="text-5xl md:text-6xl font-black uppercase tracking-widest text-cyan-300" style={{ textShadow: '0 0 15px #0ff' }}>
-          Galaxia
-        </h1>
-        <div className="mt-2 flex items-center justify-center gap-6 text-slate-300 text-base sm:text-lg">
-            <span>High Score: {highScore.toLocaleString()}</span>
+    <ScreenShell modal={false} dim="none" titleId="galaxia-title" contentClassName="mx-auto max-w-2xl sm:justify-center">
+      <header className="flex w-full shrink-0 items-start justify-between gap-3 px-1 pb-2 pt-1">
+        <div className="min-w-0 text-left">
+          <div className="mb-1 flex items-center gap-2 text-[10px] font-bold uppercase tracking-[0.2em] text-cyan-300/75">
+            <Orbit className="h-3.5 w-3.5" aria-hidden="true" />
+            Deep-space command
+          </div>
+          <h1 id="galaxia-title" className="neon-title text-4xl font-black uppercase leading-none sm:text-5xl">
+            Galaxia
+          </h1>
         </div>
-        
-        {/* Hero Selection */}
-        <div className="mt-6 w-full max-w-md">
-            <h3 className="font-bold text-lg sm:text-xl text-cyan-300">Choose Your Hero:</h3>
-            <div className="mt-4 flex justify-around items-start gap-4">
-                {(Object.keys(heroPreviews) as HeroType[]).map(heroKey => {
-                    const heroInfo = heroPreviews[heroKey];
-                    const unlockInfo = heroUnlockStatus[heroKey];
-                    const isSelected = selectedHero === heroKey;
+        <div className="mt-1 flex min-h-9 shrink-0 items-center gap-2 rounded-md border border-yellow-300/25 bg-slate-950/60 px-3">
+          <Trophy className="h-4 w-4 text-yellow-300" aria-hidden="true" />
+          <span className="sr-only">High score: </span>
+          <span className="font-mono text-sm font-bold tabular-nums text-yellow-100">{highScore.toLocaleString()}</span>
+        </div>
+      </header>
 
-                    return (
-                        <div key={heroKey} className="flex flex-col items-center gap-2 w-32 text-center cursor-pointer"
-                            onClick={() => {
-                                playSound('uiClick');
-                                onSelectHero(heroKey);
-                            }}
-                        >
-                            <div
-                                className={`p-2 border-4 rounded-lg transition-all duration-200 relative ${isSelected ? 'border-cyan-400 bg-cyan-900/50' : 'border-slate-600 hover:border-slate-400'} ${!unlockInfo.isUnlocked ? 'grayscale' : ''}`}
-                            >
-                                <div style={{ width: 60, height: 60 }}>
-                                    <heroInfo.component />
-                                </div>
-                                {!unlockInfo.isUnlocked && (
-                                     <svg xmlns="http://www.w3.org/2000/svg" className="h-8 w-8 absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 text-slate-200" viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M5 9V7a5 5 0 0110 0v2a2 2 0 012 2v5a2 2 0 01-2 2H5a2 2 0 01-2-2v-5a2 2 0 012-2zm8-2v2H7V7a3 3 0 016 0z" clipRule="evenodd" /></svg>
-                                )}
-                            </div>
-                            <span className={`font-bold transition-colors text-sm sm:text-base ${isSelected ? 'text-cyan-300' : 'text-slate-400'}`}>{heroInfo.name}</span>
-                        </div>
-                    );
-                })}
+      <main className="flex w-full flex-1 flex-col gap-3 pb-1 sm:flex-none">
+        <section aria-labelledby="hero-select-title">
+          <div className="mb-2 flex items-end justify-between gap-3 px-1">
+            <div className="text-left">
+              <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-slate-500">Flight deck</p>
+              <h2 id="hero-select-title" className="text-base font-black uppercase text-slate-100">Select craft</h2>
             </div>
-        </div>
+            <Badge tone={selectedUnlock.isUnlocked ? 'cyan' : 'gold'}>
+              {selectedUnlock.isUnlocked ? selectedInfo.role : 'Locked'}
+            </Badge>
+          </div>
 
-        {/* Description / Unlock Info Area */}
-        <div className="mt-1 h-12 flex flex-col items-center justify-center text-center">
-            {selectedHeroUnlockInfo.isUnlocked ? (
-                <p className="text-sm px-1 text-slate-300 transition-opacity duration-300">
-                    {selectedHeroInfo.description}
-                </p>
-            ) : (
-                <div className="text-sm text-yellow-300 font-semibold">
-                    <p>{selectedHeroUnlockInfo.requirement}</p>
-                    <p className="text-xs text-yellow-400/80">{selectedHeroUnlockInfo.progress}</p>
-                </div>
-            )}
-        </div>
-        
-        {/* Pre-game options */}
-        <div className="mt-4 w-full max-w-md p-4 bg-slate-800/50 rounded-lg border border-slate-600">
-            <h3 className="font-bold text-lg sm:text-xl text-cyan-300">Pre-flight Check</h3>
-            <div className="mt-3 space-y-2">
-                {consumableChecks.map(item => {
-                    const isChecked = consumables[item.id];
-                    const remaining = item.owned - (isChecked ? 1 : 0);
-                    return (
-                        <label key={item.id} className={`flex items-center justify-center p-3 rounded-md transition-colors text-sm sm:text-base ${item.owned > 0 ? 'cursor-pointer bg-slate-700/50 hover:bg-slate-700' : 'bg-slate-900/50 grayscale'}`}>
-                            <input 
-                                type="checkbox"
-                                className="h-5 w-5 rounded bg-slate-900 border-slate-600 text-cyan-500 focus:ring-cyan-600 disabled:opacity-50"
-                                checked={isChecked}
-                                onChange={(e) => handleConsumableChange(item.id, e.target.checked)}
-                                disabled={item.owned === 0}
-                                aria-label={item.label}
-                            />
-                            <span className="ml-3 text-slate-300 flex-grow text-left">{item.label}</span>
-                            <span className={`ml-2 font-bold ${isChecked && item.owned > 0 ? item.color : 'text-slate-500'}`}>
-                                ({item.owned > 0 ? remaining : 0} left)
-                            </span>
-                        </label>
-                    );
-                })}
-                {hardModeUnlocked && (
-                    <label className="flex items-center justify-center p-3 rounded-md transition-colors text-sm sm:text-base cursor-pointer bg-slate-700/50 hover:bg-slate-700 mt-2 border-2 border-pink-500/80">
-                        <input 
-                            type="checkbox"
-                            className="h-5 w-5 rounded bg-slate-900 border-slate-600 text-pink-500 focus:ring-pink-600"
-                            checked={hardModePreference}
-                            onChange={(e) => onSetHardModePreference(e.target.checked)}
-                            aria-label="Enable Hard Mode"
-                        />
-                        <span className="ml-3 text-pink-300 flex-grow text-left font-bold uppercase tracking-wider">Hard Mode</span>
-                        <span className="ml-2 font-bold text-pink-400/80">
-                            (Increased Difficulty)
+          <div className="grid grid-cols-3 gap-2" role="list" aria-label="Available ships">
+            {(Object.keys(heroPreviews) as HeroType[]).map(hero => {
+              const info = heroPreviews[hero];
+              const unlock = heroUnlockStatus[hero];
+              const isSelected = selectedHero === hero;
+              return (
+                <button
+                  key={hero}
+                  type="button"
+                  role="listitem"
+                  aria-pressed={isSelected}
+                  aria-label={`${info.name}, ${info.role}${unlock.isUnlocked ? '' : ', locked'}`}
+                  onClick={() => {
+                    playSound('uiClick');
+                    triggerHaptic('uiTap', hapticsEnabled);
+                    onSelectHero(hero);
+                  }}
+                  className={cx(
+                    'relative min-w-0 overflow-hidden rounded-md border bg-slate-950/55 px-1.5 pb-2 pt-1 text-center',
+                    'transition-[transform,border-color,background-color,box-shadow] duration-200 ease-expo active:scale-[0.97]',
+                    isSelected ? info.accent : `${info.idleAccent} hover:bg-slate-900/70`,
+                  )}
+                >
+                  <span className="relative mx-auto block h-20 w-full max-w-[128px] sm:h-24">
+                    <HeroPreviewCanvas hero={hero} selected={isSelected} locked={!unlock.isUnlocked} />
+                    {!unlock.isUnlocked && (
+                      <span className="absolute inset-0 grid place-items-center" aria-hidden="true">
+                        <span className="grid h-9 w-9 place-items-center rounded-full border border-yellow-300/35 bg-slate-950/80">
+                          <Lock className="h-4 w-4 text-yellow-200" />
                         </span>
-                    </label>
-                )}
+                      </span>
+                    )}
+                  </span>
+                  <span className="block truncate text-xs font-black uppercase sm:text-sm">{info.name}</span>
+                  <span className="mt-0.5 block truncate text-[9px] font-bold uppercase tracking-wider text-slate-500 sm:text-[10px]">{info.role}</span>
+                </button>
+              );
+            })}
+          </div>
+
+          <div className="mt-2 min-h-10 px-1 text-left">
+            {selectedUnlock.isUnlocked ? (
+              <p className="text-xs font-medium text-slate-300">{selectedInfo.description}</p>
+            ) : (
+              <StatBar
+                value={selectedUnlock.current}
+                max={selectedUnlock.target}
+                label={selectedUnlock.requirement}
+                valueLabel={`${selectedUnlock.current.toLocaleString()} / ${selectedUnlock.target.toLocaleString()}`}
+                tone="gold"
+                compact
+              />
+            )}
+          </div>
+        </section>
+
+        <GlassPanel className="p-3" tone={hardModePreference ? 'magenta' : 'neutral'}>
+          <div className="mb-2 flex items-center justify-between gap-3">
+            <div className="flex items-center gap-2 text-left">
+              <Crosshair className="h-4 w-4 text-cyan-300" aria-hidden="true" />
+              <div>
+                <h2 className="text-sm font-black uppercase text-slate-100">Loadout</h2>
+                <p className="text-[10px] text-slate-500">Consumables are spent on launch</p>
+              </div>
             </div>
-        </div>
+            <Badge tone="neutral">Optional</Badge>
+          </div>
 
+          <div className="grid grid-cols-1 gap-x-4 sm:grid-cols-2">
+            {consumableChecks.map(item => {
+              const checked = consumables[item.id];
+              const remaining = Math.max(0, item.owned - (checked ? 1 : 0));
+              const Icon = item.icon;
+              return (
+                <Toggle
+                  key={item.id}
+                  checked={checked}
+                  onChange={value => {
+                    playSound('uiClick');
+                    triggerHaptic('uiTap', hapticsEnabled);
+                    setConsumables(current => ({ ...current, [item.id]: value }));
+                  }}
+                  disabled={item.owned === 0}
+                  label={item.label}
+                  description={`${remaining} remaining`}
+                  icon={<Icon className={cx('h-4 w-4', item.tone)} />}
+                  className="border-t border-slate-700/45 py-2 first:border-t-0 sm:[&:nth-child(2)]:border-t-0"
+                />
+              );
+            })}
+          </div>
 
-        <div className="mt-6 grid grid-cols-3 gap-4">
-            <button
-              onClick={() => {
-                playSound('uiClick');
-                dispatch({ type: 'GO_TO_ARMORY' });
-              }}
-              className="px-4 py-4 text-lg sm:text-xl font-bold text-white bg-slate-700 rounded-lg shadow-lg shadow-slate-800/30 transition-all
-                         hover:bg-slate-600 hover:shadow-xl hover:shadow-slate-700/50 focus:outline-none focus:ring-4 focus:ring-slate-500 transform hover:scale-105"
-            >
-              Armory
-            </button>
-            <button
-              onClick={() => {
-                playSound('uiClick');
-                dispatch({ type: 'GO_TO_HANGAR' });
-              }}
+          {hardModeUnlocked && (
+            <div className="mt-1 border-t border-pink-400/20 pt-2">
+              <Toggle
+                checked={hardModePreference}
+                onChange={value => {
+                  playSound('uiClick');
+                  triggerHaptic('uiWarning', hapticsEnabled);
+                  onSetHardModePreference(value);
+                }}
+                label="Hard mode"
+                description="Hostiles strike faster and punish mistakes"
+                tone="magenta"
+              />
+            </div>
+          )}
+        </GlassPanel>
+
+        <nav className="grid grid-cols-3 gap-2" aria-label="Command sections">
+          <NeonButton variant="quiet" icon={<Wrench className="h-4 w-4" />} onClick={() => navigate({ type: 'GO_TO_ARMORY' })} className="px-2 text-[11px]">
+            Armory
+          </NeonButton>
+          <div className="relative">
+            <NeonButton
+              variant="quiet"
+              icon={hangarUnlocked ? <Warehouse className="h-4 w-4" /> : <Lock className="h-4 w-4" />}
+              onClick={() => navigate({ type: 'GO_TO_HANGAR' })}
               disabled={!hangarUnlocked}
-              className="px-4 py-4 text-lg sm:text-xl font-bold text-white bg-slate-700 rounded-lg shadow-lg shadow-slate-800/30 transition-all
-                         hover:bg-slate-600 hover:shadow-xl hover:shadow-slate-700/50 focus:outline-none focus:ring-4 focus:ring-slate-500 transform hover:scale-105
-                         disabled:cursor-not-allowed disabled:grayscale disabled:bg-slate-800 disabled:shadow-none disabled:text-slate-500 relative"
+              fullWidth
+              className="px-2 text-[11px]"
             >
               Hangar
-              {!hangarUnlocked && <span className="absolute -top-2 -right-2 text-xs bg-yellow-500 text-black font-bold px-2 py-0.5 rounded-full">LOCKED</span>}
-            </button>
-            <button
-              onClick={() => {
-                playSound('uiClick');
-                dispatch({ type: 'GO_TO_STORE' });
-              }}
-              className="px-4 py-4 text-lg sm:text-xl font-bold text-white bg-slate-700 rounded-lg shadow-lg shadow-slate-800/30 transition-all
-                         hover:bg-slate-600 hover:shadow-xl hover:shadow-slate-700/50 focus:outline-none focus:ring-4 focus:ring-slate-500 transform hover:scale-105"
-            >
-              Store
-            </button>
-            <button
-              onClick={() => onStart(consumables, hardModePreference)}
-              disabled={!canStart}
-              className="col-span-3 px-8 py-4 text-xl sm:text-2xl font-bold rounded-lg shadow-lg transition-all transform focus:outline-none focus:ring-4
-                         disabled:cursor-not-allowed disabled:grayscale disabled:bg-slate-600 disabled:shadow-none disabled:text-slate-400
-                         text-slate-900 bg-cyan-400 shadow-cyan-500/30 hover:bg-cyan-300 hover:shadow-xl hover:shadow-cyan-400/50 focus:ring-cyan-500 hover:scale-105"
-            >
-              {canStart ? 'Start Game' : 'Hero Locked'}
-            </button>
-        </div>
-      </div>
-    </ScreenOverlay>
+            </NeonButton>
+          </div>
+          <NeonButton variant="quiet" icon={<ShoppingBag className="h-4 w-4" />} onClick={() => navigate({ type: 'GO_TO_STORE' })} className="px-2 text-[11px]">
+            Store
+          </NeonButton>
+        </nav>
+
+        <NeonButton
+          fullWidth
+          icon={selectedUnlock.isUnlocked ? <Rocket className="h-5 w-5" /> : <Lock className="h-5 w-5" />}
+          onClick={() => {
+            triggerHaptic('uiConfirm', hapticsEnabled);
+            onStart(consumables, hardModePreference);
+          }}
+          disabled={!selectedUnlock.isUnlocked}
+          variant={hardModePreference ? 'danger' : 'primary'}
+          className="min-h-14 text-base"
+        >
+          {selectedUnlock.isUnlocked ? (hardModePreference ? 'Launch hard mode' : 'Launch mission') : 'Craft locked'}
+        </NeonButton>
+
+        {hardModePreference && (
+          <div className="flex items-center justify-center gap-2 text-[10px] font-bold uppercase tracking-wider text-red-300" role="status">
+            <Skull className="h-3.5 w-3.5" aria-hidden="true" />
+            Threat protocol armed
+          </div>
+        )}
+      </main>
+    </ScreenShell>
   );
-}
+};

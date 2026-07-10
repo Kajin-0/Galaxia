@@ -1,7 +1,7 @@
 {
   "name": "Galaxia",
   "short_name": "Galaxia",
-  "description": "A visually striking, retro-futuristic lane shooter game. Move your ship, dodge enemies, and shoot for the high score in a neon-drenched world.",
+  "description": "A neon sci-fi arcade shooter built for fast mobile runs.",
   "start_url": "/",
   "display": "fullscreen",
   "orientation": "portrait",
@@ -34,14 +34,9 @@
     {
       "name": "Start Game",
       "short_name": "Play",
-      "description": "Start a new game of Galaxia",
+      "description": "Open Galaxia",
       "url": "/",
-      "icons": [
-        {
-          "src": "/icon-192.png",
-          "sizes": "192x192"
-        }
-      ]
+      "icons": [{ "src": "/icon-192.png", "sizes": "192x192" }]
     }
   ]
 }

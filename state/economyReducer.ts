@@ -253,7 +253,7 @@ export function gameReducer(state: GameState, action: GameAction): GameState {
             }
 
             saveProgression(newProgression);
-            const { seenEnemies, ...progressionToApply } = newProgression;
+            const { seenEnemies: _seenEnemies, ...progressionToApply } = newProgression;
 
             return { ...state, ...progressionToApply };
         }
@@ -289,7 +289,7 @@ export function gameReducer(state: GameState, action: GameAction): GameState {
             };
 
             saveProgression(newProgression);
-            const { seenEnemies, ...progressionToApply } = newProgression;
+            const { seenEnemies: _seenEnemies, ...progressionToApply } = newProgression;
             return { ...state, ...progressionToApply };
         }
         case 'COLLECT_UPGRADE': {
@@ -308,7 +308,7 @@ export function gameReducer(state: GameState, action: GameAction): GameState {
             newProgression.ongoingUpgrade = null;
 
             saveProgression(newProgression);
-            const { seenEnemies, ...progressionToApply } = newProgression;
+            const { seenEnemies: _seenEnemies, ...progressionToApply } = newProgression;
             return { ...state, ...progressionToApply };
         }
 
@@ -349,7 +349,7 @@ export function gameReducer(state: GameState, action: GameAction): GameState {
             else if (action.type === 'BUY_SPEED_BOOST') newProgression.ownedSpeedBoosts++;
             
             saveProgression(newProgression);
-            const { seenEnemies, ...progressionToApply } = newProgression;
+            const { seenEnemies: _seenEnemies, ...progressionToApply } = newProgression;
             
             return {
                 ...state,
@@ -381,7 +381,7 @@ export function gameReducer(state: GameState, action: GameAction): GameState {
             }
 
             saveProgression(currentProgression);
-            const { seenEnemies, ...progressionToApply } = currentProgression;
+            const { seenEnemies: _seenEnemies, ...progressionToApply } = currentProgression;
             
             return {
                 ...state,

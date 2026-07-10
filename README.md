@@ -1,20 +1,38 @@
-<div align="center">
-<img width="1200" height="475" alt="GHBanner" src="https://github.com/user-attachments/assets/0aa67016-6eaf-458a-adb2-6e31a0763ed6" />
-</div>
+# Galaxia
 
-# Run and deploy your AI Studio app
+Galaxia is a neon sci-fi arcade shooter built with React, Canvas 2D, Vite, and Capacitor. React owns menus and the in-game HUD; the fixed-step simulation and layered renderer remain canvas-first.
 
-This contains everything you need to run your app locally.
+## Development
 
-View your app in AI Studio: https://ai.studio/apps/drive/1Gsjq0kyypzZ7gfuIDgb_XrdAiFpWUgbq
+Requirements: Node.js 20 or newer.
 
-## Run Locally
+```bash
+npm ci
+npm run dev
+```
 
-**Prerequisites:**  Node.js
+Create a production bundle with:
 
+```bash
+npm run build
+```
 
-1. Install dependencies:
-   `npm install`
-2. Set the `GEMINI_API_KEY` in [.env.local](.env.local) to your Gemini API key
-3. Run the app:
-   `npm run dev`
+## UI/UX Overhaul
+
+The 2026 UI/UX work is intentionally recorded as a **large presentation refactor**. It replaces the runtime styling path and updates nearly every player-facing surface while preserving gameplay rules, reducer actions, simulation budgets, and canvas ownership.
+
+- Refactor branch: `agent/galaxia-ui-ux-overhaul`
+- Pre-refactor commit: `7828c52`
+- Rollback tag: `pre-ui-ux-overhaul-2026-07-09`
+- Detailed scope and rollback procedure: [docs/UI_UX_OVERHAUL.md](docs/UI_UX_OVERHAUL.md)
+
+Do not remove the baseline tag after merge. It is the stable recovery point for the pre-overhaul interface.
+
+## Architecture
+
+- `App.tsx`: application lifecycle, boot sequence, audio routing, and game/menu composition
+- `components/ui/`: React screens, HUD, transitions, and Galaxia UI primitives
+- `components/canvas/`: layered Canvas 2D rendering and cached visual effects
+- `gameLogic/`, `state/`, `hooks/useGameLoop.ts`: fixed-step gameplay simulation and reducer state
+- `utils/uiPerformance.ts`: presentation-only device tier and accessibility preferences
+- `android/`, `ios/`: Capacitor native shells

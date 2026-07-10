@@ -74,7 +74,6 @@ function createWardenPaths(): Record<string, Path2D> {
     cannonRightPath.closePath();
 
     const seams = new Path2D();
-    const inset = 6;
     seams.moveTo(0, -halfH * 0.4);
     seams.lineTo(W * 0.2, H * -0.1);
     seams.lineTo(halfW - W * 0.25, 0);
@@ -232,11 +231,6 @@ function getPreRenderedWardenGlow(part: 'seams' | 'cockpit' | 'engine', isHardMo
 function drawWardenVisual(ctx: CanvasRenderingContext2D, isHardMode: boolean) {
     const paths = getBossPaths('warden');
     
-    const hullColor1 = isHardMode ? '#52525b' : '#334155';
-    const hullColor2 = isHardMode ? '#27272a' : '#1e293b';
-    const cannonColor1 = isHardMode ? '#3f3f46' : '#475569';
-    const cannonColor2 = isHardMode ? '#18181b' : '#1e293b';
-
     ctx.save();
     
     // Main Hull Gradient

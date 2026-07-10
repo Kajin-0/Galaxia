@@ -15,6 +15,7 @@ import { RandomEncounterScreen } from './RandomEncounterScreen';
 import { EncounterOutcomeScreen } from './EncounterOutcomeScreen';
 import { EncounterProcessingScreen } from './EncounterProcessingScreen';
 import { VictoryScreen } from './VictoryScreen';
+import { TransitionDirector } from './TransitionDirector';
 
 interface UIManagerProps {
     gameState: GameState;
@@ -45,8 +46,8 @@ const EncounterProcessor: React.FC<{ dispatch: React.Dispatch<GameAction> }> = (
 
 
 export const UIManager: React.FC<UIManagerProps> = ({ gameState, dispatch, handleStartGame }) => {
-    
-    switch (gameState.status) {
+    const screen = (() => {
+      switch (gameState.status) {
         case GameStatus.StartScreen:
             return <StartScreen 
                 onStart={handleStartGame}
@@ -65,6 +66,7 @@ export const UIManager: React.FC<UIManagerProps> = ({ gameState, dispatch, handl
                 hardModeUnlocked={gameState.hardModeUnlocked}
                 hardModePreference={gameState.hardModePreference}
                 onSetHardModePreference={(value) => dispatch({ type: 'SET_HARD_MODE_PREFERENCE', value })}
+                hapticsEnabled={gameState.hapticsEnabled}
             />;
         case GameStatus.Armory:
         case GameStatus.Intermission:
@@ -148,5 +150,8 @@ export const UIManager: React.FC<UIManagerProps> = ({ gameState, dispatch, handl
             />;
         default:
             return null;
-    }
+      }
+    })();
+
+    return <TransitionDirector status={gameState.status}>{screen}</TransitionDirector>;
 };

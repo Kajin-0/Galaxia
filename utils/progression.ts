@@ -187,7 +187,7 @@ export const loadProgression = (): ProgressionData => {
  * Returns an object containing only the state properties that need to be reset for a new game run.
  * This should be used inside the reducer for START_GAME and RESTART_GAME actions.
  */
-export const getNewRunState = (progression: ProgressionData, timestamp: number) => {
+export const getNewRunState = (progression: ProgressionData, _timestamp: number) => {
     const ammoBonus = progression.generalUpgrades.ammo_capacity_level > 0
         ? C.HANGAR_GENERAL_UPGRADE_CONFIG.ammo_capacity_level[progression.generalUpgrades.ammo_capacity_level - 1].effect
         : 0;
